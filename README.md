@@ -70,7 +70,9 @@ its ~5 MB ceiling.
 collapsible tool calls and results, extended thinking, and attachments with their
 extracted content. Each thread hangs off a *time rail*: a ruled gutter of
 timestamps that breaks where a real pause occurred and prints how long it lasted,
-so the rhythm of a long session is visible at a glance.
+so the rhythm of a long session is visible at a glance. On wide screens a thread
+also carries an outline of your turns — a table of contents you can jump between,
+with the turn you're reading marked, so you never have to scroll to find a point.
 
 **Search** — two layers. Fuse.js gives typo tolerance over titles and summaries
 (`tunevoat` still finds TuneVote); an exact scan over message bodies finds

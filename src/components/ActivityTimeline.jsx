@@ -13,10 +13,11 @@
  * whether a date has activity.
  */
 
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { buildActivityCalendar } from '../lib/stats.js'
 import { fmtDayLabel, fmtMonthYear, fmtNum, fmtWeekday, titleOf } from '../lib/format.js'
+import { findScrollParent, scrollWithin, useScrollSpy } from '../lib/useScrollSpy.js'
 
 export default function ActivityTimeline({ conversations }) {
   const calendar = useMemo(() => buildActivityCalendar(conversations), [conversations])
@@ -25,6 +26,19 @@ export default function ActivityTimeline({ conversations }) {
     [calendar],
   )
   const totalChats = useMemo(() => calendar.reduce((s, m) => s + m.total, 0), [calendar])
+
+  const rootRef = useRef(null)
+  const navRef = useRef(null)
+  const getScrollEl = useCallback(() => findScrollParent(rootRef.current), [])
+  // Which month is currently at the top of the scroll — mirrors the sticky header.
+  const activeMonth = useScrollSpy(getScrollEl, '[data-spy]', { threshold: 12, deps: [calendar.length] })
+
+  // Keep the active month visible in the jump-index as you scroll the list.
+  useEffect(() => {
+    if (!activeMonth || !navRef.current) return
+    const btn = navRef.current.querySelector('[data-active="true"]')
+    if (btn) scrollWithin(navRef.current, btn)
+  }, [activeMonth])
 
   if (!calendar.length) {
     return (
@@ -37,31 +51,45 @@ export default function ActivityTimeline({ conversations }) {
   const jumpTo = (key) => document.getElementById(`m-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
-    <div className="grid gap-x-8 gap-y-4 md:grid-cols-[10rem_1fr]">
+    <div ref={rootRef} className="grid gap-x-8 gap-y-4 md:grid-cols-[10rem_1fr]">
       {/* Jump index — the map of what exists, before any scrolling. */}
       <nav className="top-2 self-start md:sticky">
         <p className="rule-label mb-1">
           {calendar.length} month{calendar.length === 1 ? '' : 's'} · {fmtNum(totalChats)} chats
         </p>
-        <ul className="flex max-h-[68vh] flex-row gap-1 overflow-x-auto pb-1 md:flex-col md:gap-0.5 md:overflow-x-visible md:overflow-y-auto md:pr-1">
-          {calendar.map((m) => (
-            <li key={m.key} className="shrink-0">
-              <button
-                onClick={() => jumpTo(m.key)}
-                className="flex w-full items-baseline gap-2 rounded px-1.5 py-0.5 text-left transition hover:bg-[var(--surface-high)]"
-              >
-                <span className="flex-1 truncate text-[12px] whitespace-nowrap">{fmtMonthYear(m.ms)}</span>
-                <span className="font-mono text-[10px] text-[var(--text-dim)] tabular-nums">{m.total}</span>
-              </button>
-            </li>
-          ))}
+        <ul
+          ref={navRef}
+          className="flex max-h-[68vh] flex-row gap-1 overflow-x-auto pb-1 md:flex-col md:gap-0.5 md:overflow-x-visible md:overflow-y-auto md:pr-1"
+        >
+          {calendar.map((m) => {
+            const active = activeMonth === m.key
+            return (
+              <li key={m.key} className="shrink-0">
+                <button
+                  onClick={() => jumpTo(m.key)}
+                  data-active={active}
+                  className={`flex w-full items-baseline gap-2 rounded px-1.5 py-0.5 text-left transition ${
+                    active ? 'bg-[var(--surface-high)] text-[var(--text)]' : 'hover:bg-[var(--surface-high)]'
+                  }`}
+                >
+                  <span
+                    className="h-3 w-px shrink-0 translate-y-0.5 self-center"
+                    style={{ background: active ? 'var(--human)' : 'transparent' }}
+                    aria-hidden
+                  />
+                  <span className="flex-1 truncate text-[12px] whitespace-nowrap">{fmtMonthYear(m.ms)}</span>
+                  <span className="font-mono text-[10px] text-[var(--text-dim)] tabular-nums">{m.total}</span>
+                </button>
+              </li>
+            )
+          })}
         </ul>
       </nav>
 
       {/* The grouped list — sticky headers keep "where am I" answered while scrolling. */}
       <div className="min-w-0">
         {calendar.map((month) => (
-          <section key={month.key} id={`m-${month.key}`} className="scroll-mt-2">
+          <section key={month.key} id={`m-${month.key}`} data-spy={month.key} className="scroll-mt-2">
             <h3 className="sticky top-0 z-10 -mx-1 mb-2 flex items-baseline gap-2 bg-[var(--surface)] px-1 py-1.5">
               <span className="font-serif text-[15px] font-semibold tracking-tight">{fmtMonthYear(month.ms)}</span>
               <span className="rule-label">
