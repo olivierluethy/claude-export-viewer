@@ -63,6 +63,50 @@ export function fmtClock(ms) {
   return new Date(ms).toLocaleTimeString(dateLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
+/** "August 2026" (or "2026-08" under ISO) — month-group headers. */
+export function fmtMonthYear(ms) {
+  if (!ms) return '—'
+  const d = new Date(ms)
+  if (isIsoFormat()) return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
+  return d.toLocaleDateString(dateLocale(), { month: 'long', year: 'numeric' })
+}
+
+/** "Aug 15" (or "2026-08-15" under ISO) — day-group headers. */
+export function fmtDayLabel(ms) {
+  if (!ms) return '—'
+  const d = new Date(ms)
+  if (isIsoFormat()) return isoDay(d)
+  return d.toLocaleDateString(dateLocale(), { month: 'short', day: 'numeric' })
+}
+
+/** Short weekday ("Sat"), for the day rail. */
+export function fmtWeekday(ms) {
+  if (!ms) return ''
+  return new Date(ms).toLocaleDateString(dateLocale(), { weekday: 'short' })
+}
+
+/**
+ * Unambiguous relative age, spelled out: "today", "yesterday", "3 days ago",
+ * "5 months ago". Always pair with an absolute date so it is never a guess.
+ */
+export function fmtAgo(ms) {
+  if (!ms) return ''
+  const s = (Date.now() - ms) / 1000
+  if (s < 45) return 'just now'
+  if (s < 5400) {
+    const m = Math.round(s / 60)
+    return m <= 1 ? 'a minute ago' : `${m} minutes ago`
+  }
+  const days = Math.floor(s / 86400)
+  if (days === 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 30) return `${days} days ago`
+  const months = Math.round(days / 30.44)
+  if (months < 12) return months <= 1 ? 'a month ago' : `${months} months ago`
+  const years = days / 365.25
+  return years < 1.5 ? 'a year ago' : `${Math.round(years)} years ago`
+}
+
 /** Relative age, for list rows: "3d", "5mo", "2y". */
 export function fmtAge(ms) {
   if (!ms) return ''
