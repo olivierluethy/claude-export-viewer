@@ -75,7 +75,7 @@ function MessageRow({ message, index }) {
 
         <div className="space-y-2">
           {message.blocks.map((block, i) => (
-            <BlockRenderer key={i} block={block} />
+            <BlockRenderer key={i} block={block} anchorBase={`turn-${index}-b${i}`} />
           ))}
 
           {/* the 16 messages that carry no content array at all */}
