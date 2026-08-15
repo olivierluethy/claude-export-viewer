@@ -37,19 +37,27 @@ manual tags, the export's design chats, and current name-inferred links
 
 ## 3. Signals (features)
 
-Five signals, each normalised to `0..1`, then weighted (`WEIGHTS`) and summed ×100
+Six signals, each normalised to `0..1`, then weighted (`WEIGHTS`) and summed ×100
 into a 0–100 score:
 
 | Signal | Weight | What it measures |
 |---|---|---|
-| `name` | 0.34 | The project's name appears in the chat. Title hit is decisive; body mentions scale down. Generic names ("chat", "test", ≤3 chars) are excluded from body-only matching. Reuses `nameEvidence` — the exact logic `inferProject` uses. |
-| `content` | 0.30 | TF-IDF cosine between the chat's vector and the project's **centroid** (mean of its member chats' vectors). Scaled `min(1, cos×2.2)` because in-corpus cosines rarely exceed ~0.45. |
-| `terminology` | 0.12 | How many of the project's own distinctive terms (from its name/description/prompt/memory) appear among the chat's top terms. Saturates at 5 hits. |
-| `toolsLangs` | 0.12 | Count of tools & programming languages shared with the project's chats. Saturates at 4. |
-| `temporal` | 0.12 | Whether the chat was written during the project's active window (1.0 inside; linear decay to 0 at 8 weeks outside). |
+| `name` | 0.32 | The project's name appears in the chat — **fuzzily**. Exact phrase is strongest; a multi-token name also matches when its tokens appear *in order with a word or two between them* ("WhatsApp **Web** Customizer" ⇒ the project "WhatsApp Customizer"); title hits are decisive. Generic/ambiguous names ("Google Search", "CV", ≤3 chars) stay title-only. Shared with `inferProject` via `nameEvidence`. |
+| `content` | 0.26 | TF-IDF cosine between the chat's vector and the project's **centroid** (mean of its member chats' vectors). Scaled `min(1, cos×2.2)` because in-corpus cosines rarely exceed ~0.45. |
+| `entity` | 0.18 | A **distinctive identifier** shared with the project's chats — a product domain, a Chrome-extension id, a GitHub repo. Filtered two ways so only real fingerprints count: a curated blocklist of generic platforms (`linkedin.com`, `github.io`, `draw.io`, …, matched on the registrable domain so `www.`/`web.` subdomains collapse) **and** a corpus-frequency (IDF) cut — an identifier appearing in more than ~5% of chats is treated as generic and ignored. Saturates at ~2 shared. |
+| `terminology` | 0.10 | How many of the project's own distinctive terms (from its name/description/prompt/memory) appear among the chat's top terms. Saturates at 5 hits. |
+| `toolsLangs` | 0.08 | Count of tools & programming languages shared with the project's chats. Saturates at 4. |
+| `temporal` | 0.06 | Whether the chat was written during the project's active window (1.0 inside; linear decay to 0 at 8 weeks outside). Deliberately low-weighted: most chats overlap some project's date span, so timing alone is not evidence. |
 
 Each signal that fires contributes an **evidence entry** — `{key, value, points,
 label, detail}` — so the score is fully decomposable in the UI and in devtools.
+
+> **Why fuzzy names matter.** In the reference export the project is named
+> "WhatsApp Customizer" but every chat says "WhatsApp *Web* Customizer", so exact
+> matching scored zero and missed ~36 chats that plainly belong to it (including
+> one titled "Blog Post Generator", which shares no words with the project name at
+> all). Token-in-order matching recovers them; entity fingerprints
+> (`wwebcustomizer.com`, the extension id) catch the rest that never name it.
 
 ## 4. How scores are calculated
 
@@ -65,9 +73,11 @@ its point value suggests.
 Naïve scoring is O(chats × projects). Instead, for each chat we generate a
 *candidate set* first:
 
-- projects whose **name** matches the chat (via the name matchers), and
-- projects sharing at least one of the chat's **top terms**, looked up in a
-  prebuilt `term → Set(projectUuid)` inverted index.
+- projects whose **name** matches the chat (via the fuzzy name matchers),
+- projects sharing at least one of the chat's **top terms**, and
+- projects sharing a **distinctive entity** (domain / extension id / repo),
+
+all looked up in a prebuilt `term|@entity → Set(projectUuid)` inverted index.
 
 Only these candidates are fully scored, then pre-ranked and capped at
 `MAX_CANDIDATES` (8). A chat that shares nothing with any project is scored
@@ -81,7 +91,9 @@ model and memoised.
 
 `classify()` maps a sorted candidate list to a status using `THRESHOLDS`:
 
-- `FLOOR = 22` — best below this → **`none`** (no meaningful relationship).
+- `FLOOR = 20` — best below this → **`none`** (no meaningful relationship). Tuned
+  so a content- or entity-driven match survives, but a lone weak signal (e.g. a
+  rare-but-generic shared domain plus mere date overlap) does not.
 - `HIGH = 60` — best at/above this → **`high`**.
 - `DECISIVE = 74` **or** a `titleHit` → treated as decisive (→ `high`).
 - `MARGIN = 10` — if best is *not* decisive and `best − runnerUp < 10` →

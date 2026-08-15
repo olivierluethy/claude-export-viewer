@@ -37,16 +37,19 @@ import { buildMatchers, nameEvidence, normTitle } from './projectLinks.js'
 
 /** Signal weights. Sum = 1.0; the weighted sum is scaled ×100 to a 0–100 score. */
 export const WEIGHTS = {
-  name: 0.34, // project name appears in the chat (strongest, export-adjacent)
-  content: 0.3, // TF-IDF cosine to the project's existing chats
-  terminology: 0.12, // the project's own distinctive terms appear in the chat
-  toolsLangs: 0.12, // shared tools / programming languages
-  temporal: 0.12, // written during the project's active period
+  name: 0.32, // project name appears in the chat (fuzzy/token-tolerant)
+  content: 0.26, // TF-IDF cosine to the project's existing chats
+  entity: 0.18, // shared distinctive entity — domain, extension id, repo
+  terminology: 0.1, // the project's own distinctive terms appear in the chat
+  toolsLangs: 0.08, // shared tools / programming languages
+  temporal: 0.06, // written during the project's active period (weak — most chats overlap)
 }
 
 export const THRESHOLDS = {
-  /** Below this best score, there is no meaningful relationship. */
-  FLOOR: 22,
+  /** Below this best score, there is no meaningful relationship. Tuned so a
+   * content- or entity-driven match survives but a lone weak signal (e.g. a
+   * shared rare-but-generic domain plus temporal overlap) does not. */
+  FLOOR: 20,
   /** At/above this best score a recommendation is "high" confidence. */
   HIGH: 60,
   /** A best this strong is recommended even if a runner-up is close. */
@@ -59,9 +62,56 @@ export const THRESHOLDS = {
   CHAT_TERMS: 20,
   /** Distinctive terms kept per project profile. */
   PROFILE_TERMS: 30,
+  /** An entity is a usable fingerprint only if it appears in ≤ this many chats.
+   * Rare = distinctive (a product domain); common = a platform everyone cites. */
+  ENTITY_MAX_DF: 8,
 }
 
 const WEEK = 7 * 86_400_000
+
+/* -------------------------------------------------------- entity fingerprints --
+ * Distinctive strings that identify a product across chats even when its project
+ * name is never written: its domain, its Chrome extension id, a GitHub repo. A
+ * single shared one of these is strong evidence two chats belong together.
+ */
+
+const DOMAIN_RE = /\b((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|io|app|dev|ai|net|org|co|ch|de|xyz|gg|sh|me))\b/gi
+const EXT_ID_RE = /\b[a-p]{32}\b/g // Chrome/Edge extension ids
+const GITHUB_RE = /github\.com\/([\w.-]+\/[\w.-]+)/gi
+
+/**
+ * Generic platforms that identify no project — a chat citing any of these tells
+ * us nothing about which folder it belongs to. Stored as registrable domains
+ * (no subdomain), matched after normalisation.
+ */
+const COMMON_DOMAINS = new Set([
+  'google.com', 'gmail.com', 'youtube.com', 'github.com', 'gitlab.com', 'stackoverflow.com', 'wikipedia.org',
+  'openai.com', 'chatgpt.com', 'anthropic.com', 'claude.ai', 'example.com', 'localhost.com', 'apple.com',
+  'microsoft.com', 'amazon.com', 'aws.amazon.com', 'linkedin.com', 'x.com', 'twitter.com', 'whatsapp.com',
+  'facebook.com', 'instagram.com', 'tiktok.com', 'reddit.com', 'medium.com', 'substack.com', 'notion.so',
+  'vercel.app', 'vercel.com', 'netlify.app', 'netlify.com', 'pages.dev', 'web.app', 'firebaseapp.com',
+  'firebase.com', 'supabase.com', 'supabase.co', 't.me', 'telegram.org', 'discord.com', 'discord.gg',
+  'npmjs.com', 'mozilla.org', 'w3.org', 'cloudflare.com', 'stripe.com', 'paypal.com', 'wordpress.com',
+  'asp.net', 'dotnet.microsoft.com', 'developer.android.com', 'chrome.com', 'wikipedia.com',
+  'github.io', 'gitlab.io', 'herokuapp.com', 'onrender.com', 'glitch.me', 'repl.co', 'replit.com',
+  'ngrok.io', 'gitbook.io', 'readthedocs.io', 'figma.com', 'canva.com', 'youtu.be', 'bit.ly',
+  'draw.io', 'diagrams.net', 'excalidraw.com', 'miro.com', 'lucidchart.com', 'loom.com', 'imgur.com',
+])
+
+/** Reduce a hostname to its registrable domain: web.whatsapp.com → whatsapp.com. */
+const registrable = (host) => host.toLowerCase().split('.').slice(-2).join('.')
+
+export function extractEntities(text) {
+  const set = new Set()
+  const s = String(text || '')
+  for (const m of s.matchAll(DOMAIN_RE)) {
+    const d = registrable(m[1])
+    if (!COMMON_DOMAINS.has(d)) set.add(d)
+  }
+  for (const m of s.matchAll(EXT_ID_RE)) set.add(m[0].toLowerCase())
+  for (const m of s.matchAll(GITHUB_RE)) set.add(`gh:${m[1].toLowerCase()}`)
+  return set
+}
 
 /* ----------------------------------------------------------- small helpers -- */
 
@@ -109,6 +159,7 @@ function buildProfiles({ projects, links, relatedIndex, memories, matchers }) {
     const times = []
     const tools = new Map()
     const langs = new Map()
+    const entities = new Set()
     for (const c of memberConvs) {
       const vec = relatedIndex.vectors.get(c.uuid)
       if (vec) for (const [t, w] of vec) sum.set(t, (sum.get(t) || 0) + w)
@@ -116,6 +167,7 @@ function buildProfiles({ projects, links, relatedIndex, memories, matchers }) {
       if (when) times.push(when)
       for (const t of c.facets?.tools ?? []) tools.set(t, (tools.get(t) || 0) + 1)
       for (const l of c.facets?.languages ?? []) langs.set(l, (langs.get(l) || 0) + 1)
+      for (const e of c._entities ?? extractEntities(c.searchText)) entities.add(e)
     }
     for (const d of group.design) {
       const when = d.updatedAtMs ?? d.createdAtMs
@@ -139,6 +191,7 @@ function buildProfiles({ projects, links, relatedIndex, memories, matchers }) {
       matcher: matchers[i] ?? null,
       centroid,
       terms,
+      entities,
       tools,
       langs,
       memberCount,
@@ -149,18 +202,17 @@ function buildProfiles({ projects, links, relatedIndex, memories, matchers }) {
   return profiles
 }
 
-/** term -> Set(projectUuid): lets candidate generation skip unrelated projects. */
+/** term|entity -> Set(projectUuid): lets candidate generation skip unrelated projects. */
 function buildTermIndex(profiles) {
   const idx = new Map()
+  const add = (key, uuid) => {
+    if (!idx.has(key)) idx.set(key, new Set())
+    idx.get(key).add(uuid)
+  }
   for (const [uuid, prof] of profiles) {
-    for (const term of prof.centroid.keys()) {
-      if (!idx.has(term)) idx.set(term, new Set())
-      idx.get(term).add(uuid)
-    }
-    for (const term of prof.terms) {
-      if (!idx.has(term)) idx.set(term, new Set())
-      idx.get(term).add(uuid)
-    }
+    for (const term of prof.centroid.keys()) add(term, uuid)
+    for (const term of prof.terms) add(term, uuid)
+    for (const e of prof.entities) add(`@${e}`, uuid) // namespaced so it can't collide with a term
   }
   return idx
 }
@@ -170,7 +222,7 @@ function buildTermIndex(profiles) {
 const round = (n) => Math.round(n * 10) / 10
 
 /** Score one candidate project for one chat, returning score + evidence. */
-function scoreCandidate({ conv, chatVec, chatTerms, title, body, prof }) {
+function scoreCandidate({ conv, chatVec, chatTerms, chatEntities, title, body, prof }) {
   const evidence = []
   let score = 0
 
@@ -202,6 +254,23 @@ function scoreCandidate({ conv, chatVec, chatTerms, title, body, prof }) {
       points: round(pts),
       label: 'Vocabulary overlap',
       detail: `Distinctive words in common with this project's ${prof.memberCount} chat${prof.memberCount === 1 ? '' : 's'}`,
+    })
+  }
+
+  // 2b. Shared distinctive entity — a domain, extension id, or repo the project's
+  // chats also use. Very strong: these are near-unique to a product.
+  const sharedEntities = []
+  for (const e of chatEntities) if (prof.entities.has(e)) sharedEntities.push(e)
+  const entityVal = Math.min(1, sharedEntities.length / 1.5)
+  if (entityVal > 0) {
+    const pts = entityVal * WEIGHTS.entity * 100
+    score += pts
+    evidence.push({
+      key: 'entity',
+      value: entityVal,
+      points: round(pts),
+      label: 'Shared identifier',
+      detail: `Also references ${sharedEntities.slice(0, 3).join(', ')}`,
     })
   }
 
@@ -308,6 +377,22 @@ export const STATUS_RANK = { high: 0, medium: 1, ambiguous: 2, none: 3 }
  */
 export function buildRecommendations(model, { dismissed = new Set() } = {}) {
   const { conversations, projects, links, relatedIndex, memories } = model
+
+  // Entity fingerprints, filtered to the DISTINCTIVE ones: an identifier is only
+  // trustworthy if it's rare across the corpus. A product domain appears in a
+  // handful of chats; a platform like linkedin.com appears everywhere and says
+  // nothing about which project a chat belongs to.
+  const entityDF = new Map()
+  for (const c of conversations) {
+    const es = extractEntities(c.searchText)
+    for (const e of es) entityDF.set(e, (entityDF.get(e) || 0) + 1)
+    c._entitiesRaw = es
+  }
+  const maxDF = Math.max(3, Math.min(THRESHOLDS.ENTITY_MAX_DF, Math.floor(conversations.length * 0.05)))
+  for (const c of conversations) {
+    c._entities = new Set([...c._entitiesRaw].filter((e) => entityDF.get(e) <= maxDF))
+  }
+
   const matchers = buildMatchers(projects) // index-aligned with projects
   const profiles = buildProfiles({ projects, links, relatedIndex, memories, matchers })
   const termIndex = buildTermIndex(profiles)
@@ -331,13 +416,15 @@ export function buildRecommendations(model, { dismissed = new Set() } = {}) {
     const chatVec = relatedIndex.vectors.get(conv.uuid)
     const title = normTitle(conv)
     const body = conv.searchText || ''
+    const chatEntities = conv._entities ?? extractEntities(body)
 
     // Chat's strongest terms — drives both candidate generation and overlap.
     const chatTerms = new Set(
       chatVec ? [...chatVec.entries()].sort((a, b) => b[1] - a[1]).slice(0, THRESHOLDS.CHAT_TERMS).map(([t]) => t) : [],
     )
 
-    // --- candidate generation: only projects that share a name hit or a term.
+    // --- candidate generation: only projects that share a name hit, a term, or
+    // a distinctive entity — never an all-pairs sweep.
     const candidateUuids = new Set()
     for (let i = 0; i < matchers.length; i++) {
       const m = matchers[i]
@@ -347,6 +434,10 @@ export function buildRecommendations(model, { dismissed = new Set() } = {}) {
       const owners = termIndex.get(term)
       if (owners) for (const uuid of owners) candidateUuids.add(uuid)
     }
+    for (const e of chatEntities) {
+      const owners = termIndex.get(`@${e}`)
+      if (owners) for (const uuid of owners) candidateUuids.add(uuid)
+    }
 
     // --- score, minus anything the user has explicitly rejected.
     let candidates = []
@@ -354,7 +445,7 @@ export function buildRecommendations(model, { dismissed = new Set() } = {}) {
       if (dismissed.has(`${conv.uuid}::${uuid}`)) continue
       const prof = profiles.get(uuid)
       if (!prof) continue
-      candidates.push(scoreCandidate({ conv, chatVec, chatTerms, title, body, prof }))
+      candidates.push(scoreCandidate({ conv, chatVec, chatTerms, chatEntities, title, body, prof }))
     }
     candidates.sort((a, b) => b.score - a.score)
     candidates = candidates.slice(0, THRESHOLDS.MAX_CANDIDATES)
