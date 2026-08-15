@@ -43,7 +43,6 @@ export default function GraphPage() {
   const [view, setView] = useState({ x: 0, y: 0, w: W, h: H })
   const viewRef = useRef(view)
   viewRef.current = view
-  const panRef = useRef(null)
   const draggedRef = useRef(false)
   const [panning, setPanning] = useState(false)
   const atBase = view.w === W && view.x === 0 && view.y === 0
@@ -83,26 +82,30 @@ export default function GraphPage() {
     return () => svg.removeEventListener('wheel', onWheel)
   }, [zoomAt])
 
+  // Pan with window-level listeners rather than SVG pointer capture. Capturing
+  // the pointer on the SVG swallows the click that a node needs to navigate/focus
+  // — so instead we track the drag on window and only suppress the click if the
+  // pointer actually moved (a real drag), leaving plain clicks on nodes intact.
   const onPointerDown = (e) => {
     if (e.button != null && e.button > 0) return // left / touch only
     draggedRef.current = false
-    panRef.current = { cx: e.clientX, cy: e.clientY, view: viewRef.current }
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const start = { cx: e.clientX, cy: e.clientY, view: viewRef.current }
     setPanning(true)
-    e.currentTarget.setPointerCapture?.(e.pointerId)
-  }
-  const onPointerMove = (e) => {
-    const pan = panRef.current
-    if (!pan) return
-    const rect = svgRef.current.getBoundingClientRect()
-    if (Math.abs(e.clientX - pan.cx) + Math.abs(e.clientY - pan.cy) > 4) draggedRef.current = true
-    const dx = ((e.clientX - pan.cx) / rect.width) * pan.view.w
-    const dy = ((e.clientY - pan.cy) / rect.height) * pan.view.h
-    setView({ x: pan.view.x - dx, y: pan.view.y - dy, w: pan.view.w, h: pan.view.h })
-  }
-  const endPan = (e) => {
-    panRef.current = null
-    setPanning(false)
-    e.currentTarget.releasePointerCapture?.(e.pointerId)
+    const move = (ev) => {
+      if (Math.abs(ev.clientX - start.cx) + Math.abs(ev.clientY - start.cy) > 4) draggedRef.current = true
+      const dx = ((ev.clientX - start.cx) / rect.width) * start.view.w
+      const dy = ((ev.clientY - start.cy) / rect.height) * start.view.h
+      setView({ x: start.view.x - dx, y: start.view.y - dy, w: start.view.w, h: start.view.h })
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setPanning(false)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
   }
 
   // A pan-drag must not also register as a click on the node under the pointer.
@@ -271,9 +274,6 @@ export default function GraphPage() {
             ref={svgRef}
             viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
             onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endPan}
-            onPointerLeave={endPan}
             style={{ cursor: panning ? 'grabbing' : 'grab', touchAction: 'none' }}
             className="h-auto w-full touch-none select-none"
             role="img"

@@ -22,12 +22,11 @@ export function useScrollSpy(getScrollEl, selector, { threshold = 88, deps = [] 
   const [active, setActive] = useState(null)
 
   useEffect(() => {
-    const el = getScrollEl()
-    if (!el) return
-
     let raf = 0
     const compute = () => {
       raf = 0
+      const el = getScrollEl()
+      if (!el) return
       const top = el.getBoundingClientRect().top
       let current = null
       for (const node of el.querySelectorAll(selector)) {
@@ -37,17 +36,35 @@ export function useScrollSpy(getScrollEl, selector, { threshold = 88, deps = [] 
       }
       setActive(current)
     }
-    const onScroll = () => {
+    const schedule = () => {
       if (!raf) raf = requestAnimationFrame(compute)
     }
 
+    // Listen on window in the CAPTURE phase: scroll events don't bubble, but they
+    // do pass through capture on every ancestor, so this catches the scroll of
+    // whatever element ends up being the container — and is attached immediately,
+    // even before that element has mounted. That removes the start-up lag where
+    // the marker only came alive after the first layout settled.
+    window.addEventListener('scroll', schedule, true)
+    window.addEventListener('resize', schedule)
+
+    // Eager recomputes so a fresh load (or a browser-restored scroll position)
+    // shows the correct marker at once, not after the first manual scroll.
     compute()
-    el.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
+    const raf1 = requestAnimationFrame(() => {
+      compute()
+      requestAnimationFrame(compute)
+    })
+    const t1 = setTimeout(compute, 120)
+    const t2 = setTimeout(compute, 400)
+
     return () => {
-      el.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
-      if (raf) cancelAnimationFrame(raf)
+      window.removeEventListener('scroll', schedule, true)
+      window.removeEventListener('resize', schedule)
+      cancelAnimationFrame(raf)
+      cancelAnimationFrame(raf1)
+      clearTimeout(t1)
+      clearTimeout(t2)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getScrollEl, selector, threshold, ...deps])

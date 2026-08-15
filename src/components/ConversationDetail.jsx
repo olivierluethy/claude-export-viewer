@@ -17,6 +17,7 @@ import { fmtClock, fmtDate, fmtNum, stripMarkdown, titleOf, GAP_THRESHOLD_MS } f
 import { conversationToMarkdown } from '../lib/toMarkdown.js'
 import { printDocument, setPrintOption, usePrintOptions, usePrinting } from '../lib/printing.js'
 import { scrollWithin, useScrollSpy } from '../lib/useScrollSpy.js'
+import { MarkdownViewContext } from './blocks/markdownView.js'
 
 const VIRTUALIZE_ABOVE = 50
 
@@ -203,6 +204,7 @@ export default function ConversationDetail({ conversation }) {
   // element — it then silently never attaches a scroll listener and the thread
   // freezes on the first screenful.
   const parentRef = useRef(null)
+  const [mdView, setMdView] = useState('rendered')
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -255,6 +257,7 @@ export default function ConversationDetail({ conversation }) {
   const items = virtualizer.getVirtualItems()
 
   return (
+    <MarkdownViewContext.Provider value={mdView}>
     <div className="flex h-full">
     <div ref={parentRef} className="h-full min-w-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-6 pt-8 pb-24">
@@ -289,13 +292,33 @@ export default function ConversationDetail({ conversation }) {
           </div>
         )}
 
-        <div className="mt-4 flex flex-wrap gap-2 print:hidden">
+        <div className="mt-4 flex flex-wrap items-center gap-2 print:hidden">
           <CopyButton
             getText={() => conversationToMarkdown(conversation)}
             label="Copy chat as markdown"
             copiedLabel="Chat copied"
             title="Copy the whole thread as markdown"
           />
+          {/* View prose as formatted markdown, or as its raw source. */}
+          <span className="inline-flex overflow-hidden rounded-md border border-[var(--edge)]">
+            {[
+              ['rendered', 'rendered'],
+              ['source', 'markdown'],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => setMdView(mode)}
+                title={mode === 'source' ? 'Show the raw markdown source' : 'Show formatted markdown'}
+                className={`px-2 py-1 font-mono text-[11px] transition ${
+                  mdView === mode
+                    ? 'bg-[var(--surface-high)] text-[var(--human)]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
           <PrintControls />
           <button
             onClick={printDocument}
@@ -358,5 +381,6 @@ export default function ConversationDetail({ conversation }) {
     </div>
     {outline.length > 1 && <TocRail outline={outline} activeTurn={activeTurn} onJump={jumpToTurn} />}
     </div>
+    </MarkdownViewContext.Provider>
   )
 }
