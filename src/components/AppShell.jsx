@@ -8,6 +8,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useModel } from '../lib/ModelContext.jsx'
 import { fmtNum } from '../lib/format.js'
 import CommandPalette from './CommandPalette.jsx'
+import { DATE_FORMATS, setDateFormat, useDateFormat } from '../lib/prefs.js'
 
 const NAV = [
   { to: '/', label: 'Overview', end: true, count: null },
@@ -43,6 +44,28 @@ function ThemeToggle() {
     >
       theme
     </button>
+  )
+}
+
+/** Dates follow this, not the operating system — see lib/prefs.js. */
+function DateFormatPicker() {
+  const format = useDateFormat()
+  return (
+    <label className="block">
+      <span className="rule-label">date format</span>
+      <select
+        value={format}
+        onChange={(e) => setDateFormat(e.target.value)}
+        title="How dates are written throughout the app"
+        className="mt-1 w-full rounded-md border border-[var(--edge)] bg-[var(--surface-raised)] px-2 py-1.5 font-mono text-[11px] text-[var(--text-muted)]"
+      >
+        {Object.entries(DATE_FORMATS).map(([key, f]) => (
+          <option key={key} value={key}>
+            {f.label} — {f.example}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 
@@ -101,6 +124,7 @@ export default function AppShell({ onReset }) {
           <p className="text-[10.5px] leading-relaxed text-[var(--text-dim)]">
             Everything is stored and searched on this device. Nothing is sent anywhere.
           </p>
+          <DateFormatPicker />
           <ThemeToggle />
           <button
             onClick={onReset}

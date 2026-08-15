@@ -14,6 +14,7 @@ import MemoriesPage from './pages/MemoriesPage.jsx'
 import SearchPage from './pages/SearchPage.jsx'
 import ActivityPage from './pages/ActivityPage.jsx'
 import GraphPage from './pages/GraphPage.jsx'
+import { useDateFormat } from './lib/prefs.js'
 
 /** Restore the saved theme before first paint of the shell. */
 function useTheme() {
@@ -33,6 +34,7 @@ function useTheme() {
 
 export default function App() {
   const { status, progress, model, error, cache, usage, parse, reset } = useParser()
+  const dateFormat = useDateFormat()
   useTheme()
 
   if (status === 'booting')
@@ -42,7 +44,9 @@ export default function App() {
 
   return (
     <ModelProvider model={model}>
-      <HashRouter>
+      {/* Keyed on the date format so memoised rows re-render when it changes.
+          ModelProvider stays mounted above it, so the search indexes survive. */}
+      <HashRouter key={dateFormat}>
         <Routes>
           <Route element={<AppShell onReset={reset} />}>
             <Route

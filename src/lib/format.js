@@ -1,30 +1,66 @@
-/** Shared formatting. Dates render in the viewer's locale; nothing is fetched. */
+/**
+ * Shared formatting. Nothing here is fetched.
+ *
+ * Dates follow the format chosen in lib/prefs.js, NOT the operating system's
+ * locale. Following the OS meant a Spanish-configured machine printed August as
+ * "ago" inside an English interface, which reads as the English word "ago".
+ */
+
+import { dateLocale, isIsoFormat } from './prefs.js'
+
+const pad = (n) => String(n).padStart(2, '0')
+/** Local-time ISO date. `toISOString()` would shift by the UTC offset. */
+const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+const isoClock = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
 
 export const titleOf = (conv) =>
-  conv.name?.trim() ||
-  (conv.createdAtMs ? `Untitled — ${new Date(conv.createdAtMs).toLocaleDateString()}` : 'Untitled conversation')
+  conv.name?.trim() || (conv.createdAtMs ? `Untitled — ${fmtDate(conv.createdAtMs)}` : 'Untitled conversation')
 
 export const fmtNum = (n) => (n ?? 0).toLocaleString()
 
 export function fmtDate(ms, opts = {}) {
   if (!ms) return '—'
-  return new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', ...opts })
+  const d = new Date(ms)
+  if (isIsoFormat()) return isoDay(d)
+  return d.toLocaleDateString(dateLocale(), {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    ...opts,
+  })
 }
 
 export function fmtDateTime(ms) {
   if (!ms) return '—'
-  return new Date(ms).toLocaleString(undefined, {
+  const d = new Date(ms)
+  if (isIsoFormat()) return `${isoDay(d)} ${isoClock(d)}`
+  return d.toLocaleString(dateLocale(), {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
+  })
+}
+
+/** Full, spelled-out date for tooltips — the unambiguous fallback. */
+export function fmtDateLong(ms) {
+  if (!ms) return '—'
+  return new Date(ms).toLocaleString(dateLocale(), {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   })
 }
 
 export function fmtClock(ms) {
   if (!ms) return '--:--'
-  return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+  return new Date(ms).toLocaleTimeString(dateLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 /** Relative age, for list rows: "3d", "5mo", "2y". */

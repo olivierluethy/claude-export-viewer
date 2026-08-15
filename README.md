@@ -79,10 +79,13 @@ range, project, tool, language, sender, has-code and has-attachments combine
 freely and live in the URL, so a filtered view is linkable and the back button
 works. `⌘K` / `Ctrl-K` (or `/`) opens a jump-to palette over everything.
 
-**Relate** — each thread gets a *Related chats (heuristic)* panel. This is
-keyword and metadata overlap, **not** embeddings: TF-IDF term overlap (0.6),
-same project (0.15), shared tools and languages (0.15) and closeness in time
-(0.1). Every suggestion shows the reasons that fired.
+**Relate** — each thread gets a *Related chats* panel, marked **suggested**.
+These are produced by this app, **not** by your export, and they are keyword and
+metadata overlap rather than embeddings: TF-IDF term overlap (0.6), same project
+(0.15), shared tools and languages (0.15) and closeness in time (0.1). Every
+suggestion shows the reasons that fired, its message count and when it was last
+active — the count matters because this export reuses 7 conversation titles, one
+of them across 7 distinct chats.
 
 **Analyse** — activity over time as vertical bars at day/week/month granularity,
 breakdowns by project, tool and language, a date-sorted timeline, and a
@@ -175,6 +178,13 @@ are defined independently rather than flipped. The two chart inks are validated
 for colour-vision separation and contrast against both surfaces, chart identity
 is never carried by colour alone (legend plus a table view), and
 `prefers-reduced-motion` is respected.
+
+**Dates.** Dates follow an explicit format chosen in the sidebar — English
+(`11 Aug 2026`), Deutsch (`11. Aug. 2026`), ISO (`2026-08-11`), or System.
+They deliberately do *not* default to the operating system's locale: on a
+Spanish-configured machine that renders August as `ago`, which inside an English
+interface reads as the English word "ago". System remains available as an
+explicit choice.
 
 ---
 
