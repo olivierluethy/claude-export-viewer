@@ -10,7 +10,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useModel } from '../lib/ModelContext.jsx'
 import { findRelated } from '../lib/related.js'
 import { fmtNum, titleOf } from '../lib/format.js'
@@ -125,6 +125,16 @@ export default function GraphPage() {
             ? 'Inner ring: chats in this project. Outer ring: chats in other projects that this heuristic finds related — shared vocabulary, tools or timing.'
             : 'Each hub is a project; the dots around it are its chats. Only projects with at least one linked chat are shown. Click a hub to focus it.'}
         </p>
+
+        {model.recommendations.stats.related > 0 && (
+          <Link
+            to="/review"
+            className="mt-3 inline-flex items-center gap-2 rounded-md border border-[var(--human)]/35 bg-[var(--human)]/5 px-3 py-1.5 text-[12.5px] text-[var(--text-muted)] transition hover:border-[var(--human)]/60"
+          >
+            <span className="font-mono text-[var(--human)] tabular-nums">{fmtNum(model.recommendations.stats.related)}</span>
+            unlinked chats look related to a project — review recommendations →
+          </Link>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {focus && (
@@ -298,23 +308,38 @@ export default function GraphPage() {
         </div>
 
         <div className="mt-6">
-          <h2 className="mb-2 text-[13px] font-medium">Clusters by size</h2>
+          <div className="mb-2 flex items-baseline gap-2">
+            <h2 className="text-[13px] font-medium">Clusters by size</h2>
+            <span className="rule-label">+n = recommended, unconfirmed</span>
+          </div>
           <ul className="grid gap-1 sm:grid-cols-2">
-            {clusters.map((c) => (
-              <li key={c.project.uuid}>
-                <button
-                  onClick={() => setFocus(c.project.uuid)}
-                  className={`flex w-full items-baseline gap-2 rounded px-2 py-1 text-left transition hover:bg-[var(--surface-high)] ${
-                    focus === c.project.uuid ? 'bg-[var(--surface-high)]' : ''
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate text-[12.5px]">{c.project.name}</span>
-                  <span className="font-mono text-[10.5px] text-[var(--text-dim)] tabular-nums">
-                    {fmtNum(c.total)}
-                  </span>
-                </button>
-              </li>
-            ))}
+            {clusters.map((c) => {
+              const b = model.recommendations.byProject.get(c.project.uuid)
+              const recs = b ? b.high.length + b.medium.length + b.ambiguous.length : 0
+              return (
+                <li key={c.project.uuid}>
+                  <button
+                    onClick={() => setFocus(c.project.uuid)}
+                    className={`flex w-full items-baseline gap-2 rounded px-2 py-1 text-left transition hover:bg-[var(--surface-high)] ${
+                      focus === c.project.uuid ? 'bg-[var(--surface-high)]' : ''
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[12.5px]">{c.project.name}</span>
+                    {recs > 0 && (
+                      <span
+                        className="shrink-0 rounded border border-[var(--assistant)]/35 px-1.5 font-mono text-[9.5px] text-[var(--assistant)]"
+                        title={`${recs} unlinked chat${recs === 1 ? '' : 's'} recommended for this project`}
+                      >
+                        +{recs}
+                      </span>
+                    )}
+                    <span className="font-mono text-[10.5px] text-[var(--text-dim)] tabular-nums">
+                      {fmtNum(c.total)}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </div>
       </div>
