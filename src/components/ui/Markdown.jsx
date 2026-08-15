@@ -9,6 +9,14 @@ import CodeBlock from './CodeBlock.jsx'
  * no image bytes anyway and a remote request would break the offline promise.
  */
 
+// Heading classes are shared so the anchored variant (below) can't drift from
+// the plain one. Anchored headings additionally offset their scroll target.
+const HEADING_CLASS = {
+  1: 'mt-5 mb-2 text-[1.35em] font-semibold tracking-tight',
+  2: 'mt-5 mb-2 text-[1.18em] font-semibold tracking-tight',
+  3: 'mt-4 mb-1.5 text-[1.05em] font-semibold',
+}
+
 const components = {
   code({ inline, className, children, ...props }) {
     const text = String(children ?? '')
@@ -37,9 +45,9 @@ const components = {
       {children}
     </a>
   ),
-  h1: ({ children }) => <h1 className="mt-5 mb-2 text-[1.35em] font-semibold tracking-tight">{children}</h1>,
-  h2: ({ children }) => <h2 className="mt-5 mb-2 text-[1.18em] font-semibold tracking-tight">{children}</h2>,
-  h3: ({ children }) => <h3 className="mt-4 mb-1.5 text-[1.05em] font-semibold">{children}</h3>,
+  h1: ({ children }) => <h1 className={HEADING_CLASS[1]}>{children}</h1>,
+  h2: ({ children }) => <h2 className={HEADING_CLASS[2]}>{children}</h2>,
+  h3: ({ children }) => <h3 className={HEADING_CLASS[3]}>{children}</h3>,
   h4: ({ children }) => <h4 className="mt-4 mb-1.5 font-semibold">{children}</h4>,
   p: ({ children }) => <p className="my-2.5 leading-[1.72]">{children}</p>,
   ul: ({ children }) => <ul className="my-2.5 list-disc space-y-1 pl-5 marker:text-[var(--text-dim)]">{children}</ul>,
@@ -70,10 +78,30 @@ const components = {
   ),
 }
 
-function Markdown({ children }) {
+/**
+ * When `anchorBase` is set, H1–H3 get stable ids (`${anchorBase}-h${n}`, in
+ * document order) and a `data-spy` hook, so the outline can nest them and jump
+ * to them. The counter is per-render, matching `extractHeadings` in chatOutline.
+ */
+function withAnchors(base) {
+  let n = 0
+  const heading = (level) => ({ children }) => {
+    const id = `${base}-h${n++}`
+    const Tag = `h${level}`
+    return (
+      <Tag id={id} data-spy={id} className={`scroll-mt-4 ${HEADING_CLASS[level]}`}>
+        {children}
+      </Tag>
+    )
+  }
+  return { ...components, h1: heading(1), h2: heading(2), h3: heading(3) }
+}
+
+function Markdown({ children, anchorBase }) {
+  const comps = anchorBase ? withAnchors(anchorBase) : components
   return (
     <div className="text-[14.5px] break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={comps}>
         {children}
       </ReactMarkdown>
     </div>
