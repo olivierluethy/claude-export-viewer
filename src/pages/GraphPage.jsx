@@ -9,7 +9,7 @@
  * Focus a project to see only its neighbourhood.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useModel } from '../lib/ModelContext.jsx'
 import { findRelated } from '../lib/related.js'
@@ -26,11 +26,89 @@ const polar = (cx, cy, r, deg) => {
   return [cx + r * Math.cos(a), cy + r * Math.sin(a)]
 }
 
+const ASPECT = H / W
+const MIN_W = W * 0.2 // deepest zoom-in (~5×)
+const MAX_W = W * 1.25 // slight zoom-out headroom
+const clampW = (w) => Math.max(MIN_W, Math.min(MAX_W, w))
+
 export default function GraphPage() {
   const model = useModel()
   const navigate = useNavigate()
   const [focus, setFocus] = useState(null)
   const [hover, setHover] = useState(null)
+
+  // Zoom & pan are expressed as the SVG viewBox, so every mark (and the tooltip,
+  // which lives in SVG space) scales and translates together.
+  const svgRef = useRef(null)
+  const [view, setView] = useState({ x: 0, y: 0, w: W, h: H })
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const panRef = useRef(null)
+  const draggedRef = useRef(false)
+  const [panning, setPanning] = useState(false)
+  const atBase = view.w === W && view.x === 0 && view.y === 0
+
+  const zoomAt = useCallback((factor, clientX, clientY) => {
+    const svg = svgRef.current
+    if (!svg) return
+    const v = viewRef.current
+    const rect = svg.getBoundingClientRect()
+    const newW = clampW(v.w * factor)
+    const newH = newW * ASPECT
+    // Fraction of the viewport the focal point sits at (centre for buttons).
+    const px = clientX == null ? 0.5 : (clientX - rect.left) / rect.width
+    const py = clientY == null ? 0.5 : (clientY - rect.top) / rect.height
+    const fx = v.x + px * v.w
+    const fy = v.y + py * v.h
+    setView({ x: fx - px * newW, y: fy - py * newH, w: newW, h: newH })
+  }, [])
+
+  const resetView = useCallback(() => setView({ x: 0, y: 0, w: W, h: H }), [])
+
+  // Recentre whenever the focus changes — a focused cluster starts framed.
+  useEffect(() => {
+    resetView()
+  }, [focus, resetView])
+
+  // Wheel zoom, attached natively so it can preventDefault (React's onWheel is
+  // passive and cannot stop the page from scrolling underneath).
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    const onWheel = (e) => {
+      e.preventDefault()
+      zoomAt(e.deltaY > 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY)
+    }
+    svg.addEventListener('wheel', onWheel, { passive: false })
+    return () => svg.removeEventListener('wheel', onWheel)
+  }, [zoomAt])
+
+  const onPointerDown = (e) => {
+    if (e.button != null && e.button > 0) return // left / touch only
+    draggedRef.current = false
+    panRef.current = { cx: e.clientX, cy: e.clientY, view: viewRef.current }
+    setPanning(true)
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+  const onPointerMove = (e) => {
+    const pan = panRef.current
+    if (!pan) return
+    const rect = svgRef.current.getBoundingClientRect()
+    if (Math.abs(e.clientX - pan.cx) + Math.abs(e.clientY - pan.cy) > 4) draggedRef.current = true
+    const dx = ((e.clientX - pan.cx) / rect.width) * pan.view.w
+    const dy = ((e.clientY - pan.cy) / rect.height) * pan.view.h
+    setView({ x: pan.view.x - dx, y: pan.view.y - dy, w: pan.view.w, h: pan.view.h })
+  }
+  const endPan = (e) => {
+    panRef.current = null
+    setPanning(false)
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }
+
+  // A pan-drag must not also register as a click on the node under the pointer.
+  const clickGuard = (fn) => () => {
+    if (!draggedRef.current) fn()
+  }
 
   const clusters = useMemo(() => {
     const out = []
@@ -157,10 +235,50 @@ export default function GraphPage() {
               other project
             </span>
           </div>
+          <span className="rule-label ml-auto hidden sm:block">scroll to zoom · drag to pan</span>
         </div>
 
-        <div className="scroll-x mt-4 rounded-xl border border-[var(--edge)] bg-[var(--surface-raised)]">
-          <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Project relationship map">
+        <div className="relative mt-4 overflow-hidden rounded-xl border border-[var(--edge)] bg-[var(--surface-raised)]">
+          {/* Zoom controls — scroll to zoom, drag to pan, or use these. */}
+          <div className="absolute top-2 right-2 z-10 flex flex-col gap-1 print:hidden">
+            <button
+              onClick={() => zoomAt(1 / 1.3)}
+              title="Zoom in"
+              aria-label="Zoom in"
+              className="h-7 w-7 rounded-md border border-[var(--edge)] bg-[var(--surface-raised)]/90 font-mono text-[15px] leading-none text-[var(--text-muted)] transition hover:border-[var(--edge-strong)] hover:text-[var(--text)]"
+            >
+              +
+            </button>
+            <button
+              onClick={() => zoomAt(1.3)}
+              title="Zoom out"
+              aria-label="Zoom out"
+              className="h-7 w-7 rounded-md border border-[var(--edge)] bg-[var(--surface-raised)]/90 font-mono text-[15px] leading-none text-[var(--text-muted)] transition hover:border-[var(--edge-strong)] hover:text-[var(--text)]"
+            >
+              −
+            </button>
+            <button
+              onClick={resetView}
+              disabled={atBase}
+              title="Reset zoom"
+              aria-label="Reset zoom"
+              className="h-7 w-7 rounded-md border border-[var(--edge)] bg-[var(--surface-raised)]/90 font-mono text-[12px] leading-none text-[var(--text-muted)] transition enabled:hover:border-[var(--edge-strong)] enabled:hover:text-[var(--text)] disabled:opacity-40"
+            >
+              ⤢
+            </button>
+          </div>
+          <svg
+            ref={svgRef}
+            viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endPan}
+            onPointerLeave={endPan}
+            style={{ cursor: panning ? 'grabbing' : 'grab', touchAction: 'none' }}
+            className="h-auto w-full touch-none select-none"
+            role="img"
+            aria-label="Project relationship map. Scroll to zoom, drag to pan."
+          >
             {!focused &&
               overview.map((c) => (
                 <g key={c.project.uuid}>
@@ -187,7 +305,7 @@ export default function GraphPage() {
                       className="cursor-pointer"
                       onMouseEnter={() => setHover({ x: n.x, y: n.y, text: label(n.item) })}
                       onMouseLeave={() => setHover(null)}
-                      onClick={() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`)}
+                      onClick={clickGuard(() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`))}
                     />
                   ))}
                   <circle
@@ -198,7 +316,7 @@ export default function GraphPage() {
                     stroke="var(--surface-raised)"
                     strokeWidth="2.5"
                     className="cursor-pointer"
-                    onClick={() => setFocus(c.project.uuid)}
+                    onClick={clickGuard(() => setFocus(c.project.uuid))}
                   />
                   <text
                     x={c.lx}
@@ -250,7 +368,7 @@ export default function GraphPage() {
                       className="cursor-pointer"
                       onMouseEnter={() => setHover({ x: o.x, y: o.y, text: titleOf(o.item) })}
                       onMouseLeave={() => setHover(null)}
-                      onClick={() => navigate(`/chats/${o.item.uuid}`)}
+                      onClick={clickGuard(() => navigate(`/chats/${o.item.uuid}`))}
                     />
                   </g>
                 ))}
@@ -267,7 +385,7 @@ export default function GraphPage() {
                       className="cursor-pointer"
                       onMouseEnter={() => setHover({ x: n.x, y: n.y, text: label(n.item) })}
                       onMouseLeave={() => setHover(null)}
-                      onClick={() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`)}
+                      onClick={clickGuard(() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`))}
                     />
                   </g>
                 ))}
