@@ -3,13 +3,20 @@
  * All three are titled "Chat" in this export, so they're labelled by project.
  */
 
+import { useCallback, useMemo, useRef } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useModel } from '../lib/ModelContext.jsx'
-import Markdown from '../components/ui/Markdown.jsx'
 import CodeBlock from '../components/ui/CodeBlock.jsx'
 import Collapsible from '../components/ui/Collapsible.jsx'
 import CopyButton from '../components/ui/CopyButton.jsx'
-import { fmtClock, fmtDate } from '../lib/format.js'
+import Prose from '../components/blocks/Prose.jsx'
+import ChatTableOfContents from '../components/chat/ChatTableOfContents.jsx'
+import ChatViewToggle from '../components/chat/ChatViewToggle.jsx'
+import { MarkdownViewContext } from '../components/blocks/markdownView.js'
+import { useChatViewMode } from '../lib/chatViewMode.js'
+import { buildChatOutline } from '../lib/chatOutline.js'
+import { useScrollSpy } from '../lib/useScrollSpy.js'
+import { fmtClock, fmtDate, fmtNum, stripMarkdown } from '../lib/format.js'
 
 const label = (d) => (d.projectName ? `${d.projectName} · design chat` : d.title || 'Design chat')
 
@@ -64,14 +71,22 @@ export default function DesignChatsPage() {
   )
 }
 
-function DesignMessage({ message }) {
+/** Raw markdown for a single design-chat turn — copy is always the source. */
+const designMessageToMarkdown = (m) => `### ${m.role === 'user' ? m.authorName || 'You' : 'Claude'}\n\n${m.plain}`.trim()
+
+function DesignMessage({ message, index }) {
   const isUser = message.role === 'user'
   const ink = isUser ? 'var(--human)' : 'var(--assistant)'
   const toolCalls = message.blocks.filter((b) => b.kind === 'tool_use')
   const extraText = message.blocks.filter((b) => b.kind === 'text' && b.text?.trim())
+  const base = `turn-${index}`
 
   return (
-    <article className="group grid grid-cols-[var(--gutter)_1fr] gap-x-3.5 [--gutter:4.25rem]">
+    <article
+      id={base}
+      data-spy={base}
+      className="group grid scroll-mt-4 grid-cols-[var(--gutter)_1fr] gap-x-3.5 [--gutter:4.25rem]"
+    >
       <div className="relative select-none">
         <span className="absolute top-0 right-0 bottom-0 w-px" style={{ background: 'var(--rail)' }} aria-hidden />
         <span
@@ -89,12 +104,19 @@ function DesignMessage({ message }) {
           <h3 className="font-mono text-[11px] font-medium tracking-[0.09em] uppercase" style={{ color: ink }}>
             {isUser ? message.authorName || 'You' : 'Claude'}
           </h3>
+          <CopyButton
+            getText={() => designMessageToMarkdown(message)}
+            label="Copy turn"
+            copiedLabel="Copied"
+            title="Copy this turn as markdown"
+            className="ml-auto border-transparent opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 print:hidden"
+          />
         </header>
 
         <div className="space-y-2">
-          {message.text && <Markdown>{message.text}</Markdown>}
+          {message.text?.trim() && <Prose text={message.text} anchorBase={`${base}-t`} />}
           {extraText.map((b, i) => (
-            <Markdown key={i}>{b.text}</Markdown>
+            <Prose key={i} text={b.text} anchorBase={`${base}-e${i}`} />
           ))}
 
           {toolCalls.length > 0 && (
@@ -135,10 +157,85 @@ function DesignMessage({ message }) {
   )
 }
 
+/** A turn's one-line label for the outline. */
+const turnPreview = (m) => stripMarkdown(m.plain || m.text || '').slice(0, 70) || 'empty turn'
+
+/** Metadata the export actually carries for a design chat — no invented fields. */
+function DesignMeta({ chat, project }) {
+  const users = chat.messages.filter((m) => m.role === 'user').length
+  const assistants = chat.messages.filter((m) => m.role === 'assistant').length
+  const toolCalls = chat.messages.reduce((n, m) => n + m.blocks.filter((b) => b.kind === 'tool_use').length, 0)
+  const attachments = chat.messages.reduce((n, m) => n + m.attachments.length, 0)
+  const spansDays = chat.updatedAtMs && chat.updatedAtMs - chat.createdAtMs > 864e5
+
+  const items = [
+    `${fmtNum(chat.messages.length)} messages`,
+    `${fmtNum(users)} you · ${fmtNum(assistants)} Claude`,
+    toolCalls ? `${fmtNum(toolCalls)} tool call${toolCalls === 1 ? '' : 's'}` : null,
+    attachments ? `${fmtNum(attachments)} attachment${attachments === 1 ? '' : 's'}` : null,
+    chat.title && chat.title !== 'Chat' ? `titled “${chat.title}”` : null,
+  ].filter(Boolean)
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+      <span className="rule-label">
+        {fmtDate(chat.createdAtMs)}
+        {spansDays ? ` → ${fmtDate(chat.updatedAtMs)}` : ''}
+      </span>
+      {items.map((t) => (
+        <span key={t} className="rule-label before:mr-2.5 before:content-['·']">
+          {t}
+        </span>
+      ))}
+      {project && (
+        <Link
+          to={`/projects/${chat.resolvedProjectUuid}`}
+          className="rule-label before:mr-2.5 before:content-['·'] hover:text-[var(--assistant)]"
+        >
+          project · {project.name}
+        </Link>
+      )}
+    </div>
+  )
+}
+
 export function DesignChatRoute() {
   const model = useModel()
   const { uuid } = useParams()
   const chat = model.designChatsById.get(uuid)
+  const mdView = useChatViewMode()
+  const scrollRef = useRef(null)
+
+  const getScrollEl = useCallback(() => scrollRef.current, [])
+  const activeId = useScrollSpy(getScrollEl, '[data-spy]', { threshold: 96, deps: [uuid] })
+
+  const outline = useMemo(() => {
+    if (!chat) return []
+    return buildChatOutline(
+      chat.messages.map((m, index) => {
+        const segs = []
+        if (m.text?.trim()) segs.push({ base: `turn-${index}-t`, text: m.text })
+        m.blocks
+          .filter((b) => b.kind === 'text' && b.text?.trim())
+          .forEach((b, i) => segs.push({ base: `turn-${index}-e${i}`, text: b.text }))
+        return {
+          anchorId: `turn-${index}`,
+          role: m.role === 'user' ? 'human' : 'assistant',
+          roleLabel: m.role === 'user' ? 'You' : 'Claude',
+          ms: m.createdAtMs,
+          preview: turnPreview(m),
+          proseSegments: segs,
+        }
+      }),
+    )
+  }, [chat])
+
+  const jumpTo = useCallback((anchorId, fallbackId) => {
+    ;(document.getElementById(anchorId) || document.getElementById(fallbackId))?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }, [])
 
   if (!chat) {
     return (
@@ -148,6 +245,8 @@ export function DesignChatRoute() {
     )
   }
 
+  const project = chat.resolvedProjectUuid ? model.projectsById.get(chat.resolvedProjectUuid) : null
+
   const asMarkdown = () =>
     [
       `# ${label(chat)}`,
@@ -156,41 +255,39 @@ export function DesignChatRoute() {
       '',
       '---',
       '',
-      chat.messages
-        .map((m) => `### ${m.role === 'user' ? m.authorName || 'You' : 'Claude'}\n\n${m.plain}`)
-        .join('\n\n---\n\n'),
+      chat.messages.map(designMessageToMarkdown).join('\n\n---\n\n'),
     ].join('\n')
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
-        <Link to="/design" className="rule-label hover:text-[var(--text-muted)]">
-          ← all design chats
-        </Link>
+    <MarkdownViewContext.Provider value={mdView}>
+      <div className="flex h-full">
+        <div ref={scrollRef} className="h-full min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl px-6 pt-8 pb-24">
+            <Link to="/design" className="rule-label hover:text-[var(--text-muted)]">
+              ← all design chats
+            </Link>
 
-        <header className="mt-3 mb-7 border-b border-[var(--edge)] pb-5">
-          <h1 className="font-serif text-[1.65rem] font-semibold tracking-tight">{label(chat)}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-x-2.5">
-            <span className="rule-label">{fmtDate(chat.createdAtMs)}</span>
-            <span className="rule-label before:mr-2.5 before:content-['·']">{chat.messages.length} messages</span>
-            {chat.resolvedProjectUuid && (
-              <Link
-                to={`/projects/${chat.resolvedProjectUuid}`}
-                className="rule-label before:mr-2.5 before:content-['·'] hover:text-[var(--assistant)]"
-              >
-                open project
-              </Link>
-            )}
-          </div>
-          <div className="mt-4 print:hidden">
-            <CopyButton getText={asMarkdown} label="Copy chat as markdown" copiedLabel="Chat copied" />
-          </div>
-        </header>
+            <header className="mt-3 mb-7 border-b border-[var(--edge)] pb-5">
+              <h1 className="font-serif text-[1.65rem] font-semibold tracking-tight">{label(chat)}</h1>
+              <DesignMeta chat={chat} project={project} />
+              <div className="mt-4 flex flex-wrap items-center gap-2 print:hidden">
+                <CopyButton getText={asMarkdown} label="Copy chat as markdown" copiedLabel="Chat copied" />
+                <ChatViewToggle />
+              </div>
+            </header>
 
-        {chat.messages.map((m) => (
-          <DesignMessage key={m.uuid} message={m} />
-        ))}
+            {chat.messages.map((m, i) => (
+              <DesignMessage key={m.uuid} message={m} index={i} />
+            ))}
+          </div>
+        </div>
+        <ChatTableOfContents
+          groups={outline}
+          activeId={activeId}
+          onJump={jumpTo}
+          turnCount={chat.messages.length}
+        />
       </div>
-    </div>
+    </MarkdownViewContext.Provider>
   )
 }
