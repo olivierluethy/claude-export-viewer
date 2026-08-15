@@ -15,8 +15,8 @@
  *
  * Pipeline (see docs/RELATIONSHIP_ALGORITHM.md for the full rationale):
  *
- *   confirmed?  ──yes──▶ status: 'confirmed' (never re-scored, never overwritten)
- *      │no
+ *   already in a project?  ──yes──▶ skipped (already shown inside that folder)
+ *      │no  (no tag, no design link, no name-match inference)
  *      ▼
  *   candidate generation  (name matchers + term inverted index — not all-pairs)
  *      ▼
@@ -298,7 +298,7 @@ export function classify(candidates) {
  * Build every recommendation once, memoised per model in ModelContext.
  */
 
-export const STATUS_RANK = { high: 0, medium: 1, ambiguous: 2, none: 3, confirmed: 4 }
+export const STATUS_RANK = { high: 0, medium: 1, ambiguous: 2, none: 3 }
 
 /**
  * @param {object} model  the derived model (conversations w/ searchText, projects,
@@ -314,16 +314,16 @@ export function buildRecommendations(model, { dismissed = new Set() } = {}) {
 
   const byConversation = new Map()
   const byProject = new Map(projects.map((p) => [p.uuid, { high: [], medium: [], ambiguous: [] }]))
-  const stats = { total: conversations.length, confirmed: 0, unlinked: 0, related: 0, high: 0, medium: 0, ambiguous: 0, none: 0 }
+  const stats = { total: conversations.length, linked: 0, unlinked: 0, related: 0, high: 0, medium: 0, ambiguous: 0, none: 0 }
 
   for (const conv of conversations) {
     const existing = links?.byConversation?.get(conv.uuid)
 
-    // Confirmed = you tagged it. Never re-scored, never overwritten.
-    if (existing?.source === 'manual') {
-      const rec = { uuid: conv.uuid, status: 'confirmed', top: null, candidates: [], confirmedProjectUuid: existing.projectUuid }
-      byConversation.set(conv.uuid, rec)
-      stats.confirmed++
+    // Already in a project — you tagged it, or the export/name-match already
+    // links it, so it shows up inside that folder. Recommending it there again
+    // is noise; only chats with NO association at all are worth reviewing.
+    if (existing) {
+      stats.linked++
       continue
     }
 

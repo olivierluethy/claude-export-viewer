@@ -113,13 +113,18 @@ until a human confirms it (which persists as a manual tag).
 - `none` — best candidate under FLOOR, or no candidate shared any signal.
 - `ambiguous` — evidence exists but no single project is defensible; left for the
   human, never auto-linked.
-- Confirmed chats (`source === 'manual'`) are skipped entirely — see §10.
+- Chats **already associated with a project** — by your tag, by the export's
+  design chats, or by the existing name-match inference — are skipped entirely.
+  They already appear inside that folder; re-recommending them there is noise
+  (see §10). Only chats with *no* association at all are scored.
 
 ## 10. Avoiding false positives / not overwriting confirmed links
 
-- **Confirmed relationships are inviolable.** A chat you tagged (`source ===
-  'manual'`) is marked `confirmed` and never scored, so a recommendation can
-  never overwrite your decision.
+- **Only unlinked chats are scored.** A chat that already has any link in
+  `links.byConversation` (manual tag, export design chat, or name-match
+  inference) is treated as "already in a project" and excluded from
+  recommendations, so the review queue never re-suggests a chat for the folder
+  it is already in, and a recommendation can never overwrite an existing link.
 - **Profiles are read-only during scoring.** They are seeded from known links
   once; a new recommendation never feeds back into a profile, so the engine
   can't bootstrap its own guesses into "evidence".

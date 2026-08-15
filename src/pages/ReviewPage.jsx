@@ -195,20 +195,20 @@ export default function ReviewPage() {
       <div className="mx-auto max-w-4xl px-6 py-10">
         <p className="rule-label">Relationship review</p>
         <h1 className="mt-1.5 font-serif text-3xl font-semibold tracking-tight">
-          {fmtNum(stats.related)} chat{stats.related === 1 ? '' : 's'} look related to a project
+          {fmtNum(stats.related)} of {fmtNum(stats.unlinked)} unlinked chat{stats.unlinked === 1 ? '' : 's'} look related
         </h1>
         <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[var(--text-muted)]">
-          Regular conversations carry no project in the export, so these are inferred — scored by name mentions, shared
-          vocabulary, tools and timing. Nothing is linked until you confirm it. High-confidence matches can be confirmed
-          in bulk; ambiguous ones are left for you to decide.
+          This looks only at chats that aren’t in any project yet — {fmtNum(stats.linked)} are already linked and are left
+          alone. For the rest, matches are inferred from name mentions, shared vocabulary, tools and timing. Nothing is
+          linked until you confirm it; high-confidence matches can be confirmed in bulk, ambiguous ones are yours to decide.
         </p>
 
         {/* -------- dashboard -------- */}
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Tile value={stats.unlinked} label="Unlinked chats" sub="no project in the export" />
+          <Tile value={stats.unlinked} label="Not in any project" sub={`${fmtNum(stats.linked)} already linked`} />
           <Tile value={stats.related} label="Look related" sub="worth a review" />
           <Tile value={stats.high} label="High confidence" sub="safe to bulk-confirm" fill={REC_STATUS.high.fill} />
-          <Tile value={stats.none} label="No meaningful link" sub="left unlinked" />
+          <Tile value={stats.none} label="No meaningful link" sub="stay unlinked" />
         </div>
 
         <div className="mt-4 rounded-xl border border-[var(--edge)] bg-[var(--surface-raised)] px-4 py-3.5">
