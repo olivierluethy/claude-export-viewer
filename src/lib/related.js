@@ -34,7 +34,12 @@ const TOKEN_RE = /[\p{L}][\p{L}\p{N}_-]{2,}/gu
 const TOP_TERMS = 40
 const TEXT_CAP = 12000
 
-function tokenize(text) {
+/**
+ * Bag-of-terms for a piece of text: term -> frequency, stoplisted and length
+ * bounded. Exported so the project-recommendation engine tokenises project
+ * metadata with exactly the same rules the relatedness index uses.
+ */
+export function tokenize(text) {
   const counts = new Map()
   const slice = String(text || '').slice(0, TEXT_CAP).toLowerCase()
   for (const m of slice.matchAll(TOKEN_RE)) {

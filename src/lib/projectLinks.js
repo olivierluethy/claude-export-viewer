@@ -53,6 +53,56 @@ function countMatches(re, text, cap = 40) {
   return n
 }
 
+/** Convenience: build the name matcher for every project, dropping empties. */
+export function buildMatchers(projects) {
+  return projects.map(buildMatcher).filter(Boolean)
+}
+
+/**
+ * How strongly one project's NAME shows up in a conversation. This is the exact
+ * logic `inferProject` uses per project, factored out so the recommendation
+ * engine can consume the same signal without re-deriving it.
+ *
+ * @returns {{score, reason, titleHit, bodyHits}|null} null = no usable name hit
+ */
+export function nameEvidence(title, body, matcher) {
+  const m = matcher
+  if (!m) return null
+  const titleHit = title ? countMatches(m.re, title, 1) > 0 : false
+  const bodyHits = countMatches(m.re, body || '')
+
+  if (titleHit) {
+    return {
+      score: 0.75 + Math.min(bodyHits, 10) * 0.02,
+      reason: `“${m.project.name}” appears in the conversation title`,
+      titleHit: true,
+      bodyHits,
+    }
+  }
+  // Too generic to infer from body text alone.
+  if (m.ambiguous) return null
+  if (bodyHits >= 3) {
+    return {
+      score: 0.45 + Math.min(bodyHits, 20) * 0.01,
+      reason: `“${m.project.name}” mentioned ${bodyHits}× in the conversation`,
+      titleHit: false,
+      bodyHits,
+    }
+  }
+  if (bodyHits >= 1 && m.name.length >= 8) {
+    return {
+      score: 0.32,
+      reason: `“${m.project.name}” mentioned ${bodyHits}× in the conversation`,
+      titleHit: false,
+      bodyHits,
+    }
+  }
+  return null
+}
+
+/** Lowercase, whitespace-collapsed conversation title — the form matchers expect. */
+export const normTitle = (conversation) => norm(conversation.name)
+
 /**
  * @param {object} conversation must carry `searchText` (see ModelContext)
  * @returns {{projectUuid, score, confidence, reason}|null}
@@ -64,27 +114,9 @@ export function inferProject(conversation, matchers) {
 
   for (const m of matchers) {
     if (!m) continue
-    const titleHit = title ? countMatches(m.re, title, 1) > 0 : false
-    const bodyHits = countMatches(m.re, body)
-
-    let score = 0
-    let reason = ''
-    if (titleHit) {
-      score = 0.75 + Math.min(bodyHits, 10) * 0.02
-      reason = `“${m.project.name}” appears in the conversation title`
-    } else if (m.ambiguous) {
-      // Too generic to infer from body text alone.
-      continue
-    } else if (bodyHits >= 3) {
-      score = 0.45 + Math.min(bodyHits, 20) * 0.01
-      reason = `“${m.project.name}” mentioned ${bodyHits}× in the conversation`
-    } else if (bodyHits >= 1 && m.name.length >= 8) {
-      score = 0.32
-      reason = `“${m.project.name}” mentioned ${bodyHits}× in the conversation`
-    } else {
-      continue
-    }
-    scored.push({ projectUuid: m.project.uuid, score, reason })
+    const ev = nameEvidence(title, body, m)
+    if (!ev) continue
+    scored.push({ projectUuid: m.project.uuid, score: ev.score, reason: ev.reason })
   }
 
   if (!scored.length) return null
