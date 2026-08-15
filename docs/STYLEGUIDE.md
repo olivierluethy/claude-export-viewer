@@ -268,3 +268,33 @@ Principles carried by the current UI, to be preserved and extended:
   date (tooltip or inline). `fmtDateLong` is the spelled-out unambiguous fallback.
 - Numbers: `fmtNum` (locale thousands) and `tabular-nums` everywhere they align
   or update.
+
+---
+
+## 10. Chat reader chrome
+
+Every surface that renders a chat (the thread reader, the same reader reached via
+Relationships, and the design-chat reader) shares one set of reader components so
+they look and behave identically. Reuse these, never re-implement them per view.
+
+- **Table of contents** (`ChatTableOfContents`) — a permanent right-hand
+  `aside` (`hidden xl:flex w-56 border-l border-[var(--edge)]`, `print:hidden`).
+  It is the time-rail grammar (§4) turned into an outline: turns grouped under
+  small-caps date labels, each entry a speaker-inked tick (`--human` / `--assistant`,
+  full opacity when active, `0.55` otherwise) + a mono `9.5px` `roleLabel · clock`
+  line + a truncated `12px` preview. The assistant's H1–H3 headings nest beneath
+  their turn as dimmer `11px` sub-entries, indented by level. Active row =
+  `bg-[var(--surface-high)]` with `--text` (matching §5). Below `xl` the panel
+  folds into a drawer opened by a fixed pill button (`shadow-lg` — one of the few
+  allowed shadows, §3), never disappearing.
+- **Scroll-spy.** "You are here" comes from `useScrollSpy` over `[data-spy]`
+  anchors. Every turn container carries `id="turn-<i>"` + `data-spy`; rendered
+  headings carry `id="turn-<i>-b<n>-h<k>"` + `data-spy`. Clicking an entry
+  smooth-scrolls to the anchor (routing through the owning row under
+  virtualisation), never nudging the page.
+- **Rendered ⇄ Markdown toggle** (`ChatViewToggle`) — the segmented control from
+  §4 bound to a session-wide store (`lib/chatViewMode.js`), default *rendered*.
+  Prose renders through the shared `Prose` block, which shows raw source as a
+  `markdown` code block when *source* is active.
+- **Copy is always raw markdown.** Whole-chat and per-turn copy emit source
+  regardless of the view mode; the rendered view is display-only.
