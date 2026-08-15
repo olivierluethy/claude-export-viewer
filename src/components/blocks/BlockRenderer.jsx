@@ -10,6 +10,14 @@ import CodeBlock from '../ui/CodeBlock.jsx'
 import Collapsible from '../ui/Collapsible.jsx'
 import { fmtBytes } from '../../lib/format.js'
 import { usePrinting, usePrintOptions } from '../../lib/printing.js'
+import { useMarkdownView } from './markdownView.js'
+
+/** Prose block: formatted markdown, or its raw source when 'source' is active. */
+function Prose({ text, className }) {
+  const view = useMarkdownView()
+  if (view === 'source') return <CodeBlock code={text} language="markdown" />
+  return <div className={className}><Markdown>{text}</Markdown></div>
+}
 
 /* ---------------------------------------------------------------- thinking */
 
@@ -30,7 +38,7 @@ function ThinkingBlock({ block }) {
       }
     >
       <div className="px-3 py-2.5 text-[var(--text-muted)] italic">
-        <Markdown>{block.text}</Markdown>
+        <Prose text={block.text} />
       </div>
     </Collapsible>
   )
@@ -245,7 +253,7 @@ export default function BlockRenderer({ block }) {
 
   switch (block.kind) {
     case 'text':
-      return block.text?.trim() ? <Markdown>{block.text}</Markdown> : null
+      return block.text?.trim() ? <Prose text={block.text} /> : null
     case 'thinking':
       return <ThinkingBlock block={block} />
     case 'tool_use':

@@ -9,8 +9,8 @@
  * Focus a project to see only its neighbourhood.
  */
 
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useModel } from '../lib/ModelContext.jsx'
 import { findRelated } from '../lib/related.js'
 import { fmtNum, titleOf } from '../lib/format.js'
@@ -26,11 +26,92 @@ const polar = (cx, cy, r, deg) => {
   return [cx + r * Math.cos(a), cy + r * Math.sin(a)]
 }
 
+const ASPECT = H / W
+const MIN_W = W * 0.2 // deepest zoom-in (~5×)
+const MAX_W = W * 1.25 // slight zoom-out headroom
+const clampW = (w) => Math.max(MIN_W, Math.min(MAX_W, w))
+
 export default function GraphPage() {
   const model = useModel()
   const navigate = useNavigate()
   const [focus, setFocus] = useState(null)
   const [hover, setHover] = useState(null)
+
+  // Zoom & pan are expressed as the SVG viewBox, so every mark (and the tooltip,
+  // which lives in SVG space) scales and translates together.
+  const svgRef = useRef(null)
+  const [view, setView] = useState({ x: 0, y: 0, w: W, h: H })
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const draggedRef = useRef(false)
+  const [panning, setPanning] = useState(false)
+  const atBase = view.w === W && view.x === 0 && view.y === 0
+
+  const zoomAt = useCallback((factor, clientX, clientY) => {
+    const svg = svgRef.current
+    if (!svg) return
+    const v = viewRef.current
+    const rect = svg.getBoundingClientRect()
+    const newW = clampW(v.w * factor)
+    const newH = newW * ASPECT
+    // Fraction of the viewport the focal point sits at (centre for buttons).
+    const px = clientX == null ? 0.5 : (clientX - rect.left) / rect.width
+    const py = clientY == null ? 0.5 : (clientY - rect.top) / rect.height
+    const fx = v.x + px * v.w
+    const fy = v.y + py * v.h
+    setView({ x: fx - px * newW, y: fy - py * newH, w: newW, h: newH })
+  }, [])
+
+  const resetView = useCallback(() => setView({ x: 0, y: 0, w: W, h: H }), [])
+
+  // Recentre whenever the focus changes — a focused cluster starts framed.
+  useEffect(() => {
+    resetView()
+  }, [focus, resetView])
+
+  // Wheel zoom, attached natively so it can preventDefault (React's onWheel is
+  // passive and cannot stop the page from scrolling underneath).
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    const onWheel = (e) => {
+      e.preventDefault()
+      zoomAt(e.deltaY > 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY)
+    }
+    svg.addEventListener('wheel', onWheel, { passive: false })
+    return () => svg.removeEventListener('wheel', onWheel)
+  }, [zoomAt])
+
+  // Pan with window-level listeners rather than SVG pointer capture. Capturing
+  // the pointer on the SVG swallows the click that a node needs to navigate/focus
+  // — so instead we track the drag on window and only suppress the click if the
+  // pointer actually moved (a real drag), leaving plain clicks on nodes intact.
+  const onPointerDown = (e) => {
+    if (e.button != null && e.button > 0) return // left / touch only
+    draggedRef.current = false
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const start = { cx: e.clientX, cy: e.clientY, view: viewRef.current }
+    setPanning(true)
+    const move = (ev) => {
+      if (Math.abs(ev.clientX - start.cx) + Math.abs(ev.clientY - start.cy) > 4) draggedRef.current = true
+      const dx = ((ev.clientX - start.cx) / rect.width) * start.view.w
+      const dy = ((ev.clientY - start.cy) / rect.height) * start.view.h
+      setView({ x: start.view.x - dx, y: start.view.y - dy, w: start.view.w, h: start.view.h })
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setPanning(false)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  // A pan-drag must not also register as a click on the node under the pointer.
+  const clickGuard = (fn) => () => {
+    if (!draggedRef.current) fn()
+  }
 
   const clusters = useMemo(() => {
     const out = []
@@ -126,6 +207,16 @@ export default function GraphPage() {
             : 'Each hub is a project; the dots around it are its chats. Only projects with at least one linked chat are shown. Click a hub to focus it.'}
         </p>
 
+        {model.recommendations.stats.related > 0 && (
+          <Link
+            to="/review"
+            className="mt-3 inline-flex items-center gap-2 rounded-md border border-[var(--human)]/35 bg-[var(--human)]/5 px-3 py-1.5 text-[12.5px] text-[var(--text-muted)] transition hover:border-[var(--human)]/60"
+          >
+            <span className="font-mono text-[var(--human)] tabular-nums">{fmtNum(model.recommendations.stats.related)}</span>
+            unlinked chats look related to a project — review recommendations →
+          </Link>
+        )}
+
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {focus && (
             <button
@@ -147,10 +238,47 @@ export default function GraphPage() {
               other project
             </span>
           </div>
+          <span className="rule-label ml-auto hidden sm:block">scroll to zoom · drag to pan</span>
         </div>
 
-        <div className="scroll-x mt-4 rounded-xl border border-[var(--edge)] bg-[var(--surface-raised)]">
-          <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Project relationship map">
+        <div className="relative mt-4 overflow-hidden rounded-xl border border-[var(--edge)] bg-[var(--surface-raised)]">
+          {/* Zoom controls — scroll to zoom, drag to pan, or use these. */}
+          <div className="absolute top-2 right-2 z-10 flex flex-col gap-1 print:hidden">
+            <button
+              onClick={() => zoomAt(1 / 1.3)}
+              title="Zoom in"
+              aria-label="Zoom in"
+              className="h-7 w-7 rounded-md border border-[var(--edge)] bg-[var(--surface-raised)]/90 font-mono text-[15px] leading-none text-[var(--text-muted)] transition hover:border-[var(--edge-strong)] hover:text-[var(--text)]"
+            >
+              +
+            </button>
+            <button
+              onClick={() => zoomAt(1.3)}
+              title="Zoom out"
+              aria-label="Zoom out"
+              className="h-7 w-7 rounded-md border border-[var(--edge)] bg-[var(--surface-raised)]/90 font-mono text-[15px] leading-none text-[var(--text-muted)] transition hover:border-[var(--edge-strong)] hover:text-[var(--text)]"
+            >
+              −
+            </button>
+            <button
+              onClick={resetView}
+              disabled={atBase}
+              title="Reset zoom"
+              aria-label="Reset zoom"
+              className="h-7 w-7 rounded-md border border-[var(--edge)] bg-[var(--surface-raised)]/90 font-mono text-[12px] leading-none text-[var(--text-muted)] transition enabled:hover:border-[var(--edge-strong)] enabled:hover:text-[var(--text)] disabled:opacity-40"
+            >
+              ⤢
+            </button>
+          </div>
+          <svg
+            ref={svgRef}
+            viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+            onPointerDown={onPointerDown}
+            style={{ cursor: panning ? 'grabbing' : 'grab', touchAction: 'none' }}
+            className="h-auto w-full touch-none select-none"
+            role="img"
+            aria-label="Project relationship map. Scroll to zoom, drag to pan."
+          >
             {!focused &&
               overview.map((c) => (
                 <g key={c.project.uuid}>
@@ -177,7 +305,7 @@ export default function GraphPage() {
                       className="cursor-pointer"
                       onMouseEnter={() => setHover({ x: n.x, y: n.y, text: label(n.item) })}
                       onMouseLeave={() => setHover(null)}
-                      onClick={() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`)}
+                      onClick={clickGuard(() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`))}
                     />
                   ))}
                   <circle
@@ -188,7 +316,7 @@ export default function GraphPage() {
                     stroke="var(--surface-raised)"
                     strokeWidth="2.5"
                     className="cursor-pointer"
-                    onClick={() => setFocus(c.project.uuid)}
+                    onClick={clickGuard(() => setFocus(c.project.uuid))}
                   />
                   <text
                     x={c.lx}
@@ -240,7 +368,7 @@ export default function GraphPage() {
                       className="cursor-pointer"
                       onMouseEnter={() => setHover({ x: o.x, y: o.y, text: titleOf(o.item) })}
                       onMouseLeave={() => setHover(null)}
-                      onClick={() => navigate(`/chats/${o.item.uuid}`)}
+                      onClick={clickGuard(() => navigate(`/chats/${o.item.uuid}`))}
                     />
                   </g>
                 ))}
@@ -257,7 +385,7 @@ export default function GraphPage() {
                       className="cursor-pointer"
                       onMouseEnter={() => setHover({ x: n.x, y: n.y, text: label(n.item) })}
                       onMouseLeave={() => setHover(null)}
-                      onClick={() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`)}
+                      onClick={clickGuard(() => navigate(n.item.facets ? `/chats/${n.item.uuid}` : `/design/${n.item.uuid}`))}
                     />
                   </g>
                 ))}
@@ -298,23 +426,38 @@ export default function GraphPage() {
         </div>
 
         <div className="mt-6">
-          <h2 className="mb-2 text-[13px] font-medium">Clusters by size</h2>
+          <div className="mb-2 flex items-baseline gap-2">
+            <h2 className="text-[13px] font-medium">Clusters by size</h2>
+            <span className="rule-label">+n = recommended, unconfirmed</span>
+          </div>
           <ul className="grid gap-1 sm:grid-cols-2">
-            {clusters.map((c) => (
-              <li key={c.project.uuid}>
-                <button
-                  onClick={() => setFocus(c.project.uuid)}
-                  className={`flex w-full items-baseline gap-2 rounded px-2 py-1 text-left transition hover:bg-[var(--surface-high)] ${
-                    focus === c.project.uuid ? 'bg-[var(--surface-high)]' : ''
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate text-[12.5px]">{c.project.name}</span>
-                  <span className="font-mono text-[10.5px] text-[var(--text-dim)] tabular-nums">
-                    {fmtNum(c.total)}
-                  </span>
-                </button>
-              </li>
-            ))}
+            {clusters.map((c) => {
+              const b = model.recommendations.byProject.get(c.project.uuid)
+              const recs = b ? b.high.length + b.medium.length + b.ambiguous.length : 0
+              return (
+                <li key={c.project.uuid}>
+                  <button
+                    onClick={() => setFocus(c.project.uuid)}
+                    className={`flex w-full items-baseline gap-2 rounded px-2 py-1 text-left transition hover:bg-[var(--surface-high)] ${
+                      focus === c.project.uuid ? 'bg-[var(--surface-high)]' : ''
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[12.5px]">{c.project.name}</span>
+                    {recs > 0 && (
+                      <span
+                        className="shrink-0 rounded border border-[var(--assistant)]/35 px-1.5 font-mono text-[9.5px] text-[var(--assistant)]"
+                        title={`${recs} unlinked chat${recs === 1 ? '' : 's'} recommended for this project`}
+                      >
+                        +{recs}
+                      </span>
+                    )}
+                    <span className="font-mono text-[10.5px] text-[var(--text-dim)] tabular-nums">
+                      {fmtNum(c.total)}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </div>
       </div>

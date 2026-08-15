@@ -1,8 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { buildProjectLinks, resolveDesignChatProject } from './projectLinks.js'
-import { loadTags, setTag as persistTag } from './db.js'
+import { loadTags, setTag as persistTag, loadDismissals, setDismissal as persistDismissal } from './db.js'
 import { createIndex, collectFacets } from './search.js'
 import { buildRelatednessIndex } from './related.js'
+import { buildRecommendations } from './projectRecommend.js'
+
+/** Stable key for a rejected chat→project recommendation. */
+export const dismissKey = (chatUuid, projectUuid) => `${chatUuid}::${projectUuid}`
 
 const ModelContext = createContext(null)
 
@@ -25,12 +29,14 @@ function buildSearchText(conv) {
 export function ModelProvider({ model, children }) {
   const [tags, setTags] = useState({})
   const [tagsLoaded, setTagsLoaded] = useState(false)
+  const [dismissed, setDismissed] = useState(() => new Set())
 
   useEffect(() => {
     loadTags().then((t) => {
       setTags(t)
       setTagsLoaded(true)
     })
+    loadDismissals().then(setDismissed)
   }, [])
 
   // Derived once per model: indexes and the searchable projection.
@@ -68,6 +74,17 @@ export function ModelProvider({ model, children }) {
     [base, tags],
   )
 
+  // Scored chat→project recommendations for every unlinked chat. Rebuilt when
+  // the model, the confirmed links, or the set of rejected suggestions change.
+  const recommendations = useMemo(
+    () =>
+      buildRecommendations(
+        { conversations: base.conversations, projects: base.projects, links, relatedIndex, memories: base.memories },
+        { dismissed },
+      ),
+    [base, links, relatedIndex, dismissed],
+  )
+
   const setTag = useCallback(async (conversationUuid, projectUuid) => {
     setTags((prev) => {
       const next = { ...prev }
@@ -78,9 +95,60 @@ export function ModelProvider({ model, children }) {
     await persistTag(conversationUuid, projectUuid)
   }, [])
 
+  // Confirm a recommendation = tag the chat (persisted, survives re-parse).
+  const confirmRecommendation = setTag
+
+  const dismissRecommendation = useCallback(async (conversationUuid, projectUuid) => {
+    const key = dismissKey(conversationUuid, projectUuid)
+    setDismissed((prev) => {
+      const next = new Set(prev)
+      next.add(key)
+      return next
+    })
+    await persistDismissal(key, true)
+  }, [])
+
+  const restoreRecommendation = useCallback(async (conversationUuid, projectUuid) => {
+    const key = dismissKey(conversationUuid, projectUuid)
+    setDismissed((prev) => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+    await persistDismissal(key, false)
+  }, [])
+
   const value = useMemo(
-    () => ({ ...base, links, tags, tagsLoaded, setTag, searchIndex, relatedIndex, facets }),
-    [base, links, tags, tagsLoaded, setTag, searchIndex, relatedIndex, facets],
+    () => ({
+      ...base,
+      links,
+      tags,
+      tagsLoaded,
+      setTag,
+      searchIndex,
+      relatedIndex,
+      facets,
+      recommendations,
+      dismissed,
+      confirmRecommendation,
+      dismissRecommendation,
+      restoreRecommendation,
+    }),
+    [
+      base,
+      links,
+      tags,
+      tagsLoaded,
+      setTag,
+      searchIndex,
+      relatedIndex,
+      facets,
+      recommendations,
+      dismissed,
+      confirmRecommendation,
+      dismissRecommendation,
+      restoreRecommendation,
+    ],
   )
 
   return <ModelContext.Provider value={value}>{children}</ModelContext.Provider>

@@ -126,6 +126,43 @@ export function breakdownByLanguage(conversations) {
     .sort((a, b) => b.chats - a.chats)
 }
 
+/**
+ * Calendar of activity for the timeline: months (newest first), each with its
+ * days (newest first), each day carrying its chat count and the chats started
+ * that day. Lets the UI show *where information is* — counts and dates — before
+ * anyone scrolls into the list.
+ *
+ * @returns {Array<{key, ms, total, days: Array<{key, ms, count, conversations}>}>}
+ */
+export function buildActivityCalendar(conversations) {
+  const months = new Map()
+  for (const c of conversations) {
+    if (!c.createdAtMs) continue
+    const d = new Date(c.createdAtMs)
+    const mKey = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
+    const dKey = `${mKey}-${pad(d.getDate())}`
+    if (!months.has(mKey)) months.set(mKey, { key: mKey, ms: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), total: 0, days: new Map() })
+    const month = months.get(mKey)
+    month.total++
+    if (!month.days.has(dKey)) month.days.set(dKey, { key: dKey, ms: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), count: 0, conversations: [] })
+    const day = month.days.get(dKey)
+    day.count++
+    day.conversations.push(c)
+  }
+
+  return [...months.values()]
+    .sort((a, b) => b.ms - a.ms)
+    .map((m) => ({
+      ...m,
+      days: [...m.days.values()]
+        .sort((a, b) => b.ms - a.ms)
+        .map((day) => ({
+          ...day,
+          conversations: day.conversations.sort((a, b) => (b.createdAtMs ?? 0) - (a.createdAtMs ?? 0)),
+        })),
+    }))
+}
+
 /** Date-sorted timeline, grouped by month. */
 export function buildTimeline(conversations) {
   const groups = new Map()

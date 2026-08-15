@@ -16,7 +16,9 @@
 import { openDB, deleteDB } from 'idb'
 
 export const DB_NAME = 'claude-export-viewer'
-const DB_VERSION = 1
+// v2 adds the `dismissals` store. Bumping only creates the missing store; all
+// existing cached data survives the upgrade untouched.
+const DB_VERSION = 2
 
 /**
  * Bumped whenever the parsers change shape. A cached model written by an older
@@ -32,6 +34,7 @@ const STORES = {
   misc: 'misc', // reflections | memories | owner | loginEvents
   tags: 'tags', // manual conversation→project tags (step 5)
   search: 'search', // persisted search index (step 5)
+  dismissals: 'dismissals', // rejected `${chatUuid}::${projectUuid}` recommendations
 }
 
 function open() {
@@ -48,6 +51,7 @@ function open() {
       if (!db.objectStoreNames.contains(STORES.misc)) db.createObjectStore(STORES.misc)
       if (!db.objectStoreNames.contains(STORES.tags)) db.createObjectStore(STORES.tags)
       if (!db.objectStoreNames.contains(STORES.search)) db.createObjectStore(STORES.search)
+      if (!db.objectStoreNames.contains(STORES.dismissals)) db.createObjectStore(STORES.dismissals)
     },
   })
 }
@@ -225,6 +229,38 @@ export async function setTag(conversationUuid, projectUuid) {
     db = await open()
     if (projectUuid) await db.put(STORES.tags, projectUuid, conversationUuid)
     else await db.delete(STORES.tags, conversationUuid)
+    return true
+  } catch {
+    return false
+  } finally {
+    db?.close?.()
+  }
+}
+
+/* ------------------------------------------------------- dismissals --
+ * Recommendations you have rejected, keyed `${chatUuid}::${projectUuid}`. Like
+ * tags, these are kept in their own store and never cleared by a re-parse, so a
+ * declined suggestion does not come back after re-uploading the export.
+ */
+
+export async function loadDismissals() {
+  let db
+  try {
+    db = await open()
+    return new Set(await db.getAllKeys(STORES.dismissals))
+  } catch {
+    return new Set()
+  } finally {
+    db?.close?.()
+  }
+}
+
+export async function setDismissal(key, dismissed) {
+  let db
+  try {
+    db = await open()
+    if (dismissed) await db.put(STORES.dismissals, true, key)
+    else await db.delete(STORES.dismissals, key)
     return true
   } catch {
     return false

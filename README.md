@@ -70,7 +70,9 @@ its ~5 MB ceiling.
 collapsible tool calls and results, extended thinking, and attachments with their
 extracted content. Each thread hangs off a *time rail*: a ruled gutter of
 timestamps that breaks where a real pause occurred and prints how long it lasted,
-so the rhythm of a long session is visible at a glance.
+so the rhythm of a long session is visible at a glance. On wide screens a thread
+also carries an outline of your turns — a table of contents you can jump between,
+with the turn you're reading marked, so you never have to scroll to find a point.
 
 **Search** — two layers. Fuse.js gives typo tolerance over titles and summaries
 (`tunevoat` still finds TuneVote); an exact scan over message bodies finds
@@ -87,9 +89,23 @@ suggestion shows the reasons that fired, its message count and when it was last
 active — the count matters because this export reuses 7 conversation titles, one
 of them across 7 distinct chats.
 
+**Link** — regular conversations carry no project in the export, so *Review
+links* scores every unlinked chat against your projects and recommends the ones
+that plausibly belong — using name mentions, shared vocabulary, project
+terminology, shared tools/languages and timing. It is deliberately allowed to
+say *ambiguous* or *no meaningful link* rather than forcing a guess; every
+recommendation shows its evidence and its competing candidates, and nothing is
+linked until you confirm it (high-confidence matches can be confirmed in bulk).
+Why it must infer these links rather than read them — and how — is documented in
+[`docs/RELATIONSHIP_INTELLIGENCE.md`](docs/RELATIONSHIP_INTELLIGENCE.md) (the
+"why"), with the precise signals and thresholds in
+[`docs/RELATIONSHIP_ALGORITHM.md`](docs/RELATIONSHIP_ALGORITHM.md).
+
 **Analyse** — activity over time as vertical bars at day/week/month granularity,
-breakdowns by project, tool and language, a date-sorted timeline, and a
-relationship map of projects and their chats. Clicking a bar filters the search.
+breakdowns by project, tool and language, and a relationship map of projects and
+their chats. Clicking a bar filters the search. The *timeline* leads with a
+month jump-index and per-day counts, so you can see what dates hold activity —
+and jump straight to one — without scrolling the whole archive.
 
 **Export** — copy a single turn, a whole thread as clean markdown, or any code
 block. *Save as PDF* uses a print stylesheet and `window.print()`.
@@ -156,15 +172,16 @@ src/
   workers/
     parse.worker.js unzip + parse + IndexedDB write, all off the main thread
   lib/
-    db.js           IndexedDB cache, schema-versioned
-    search.js       Fuse + exact scan + filters
-    related.js      TF-IDF relatedness heuristic
-    projectLinks.js conversation → project inference
-    stats.js        activity aggregation
-    printing.js     print mode store
-  components/     shell, reader, blocks, UI primitives
-  pages/          conversations, projects, design, reflections, memory,
-                  search, activity, graph
+    db.js               IndexedDB cache, schema-versioned
+    search.js           Fuse + exact scan + filters
+    related.js          TF-IDF relatedness heuristic
+    projectLinks.js     conversation → project inference
+    projectRecommend.js scored, explainable project↔chat recommendations
+    stats.js            activity aggregation
+    printing.js         print mode store
+  components/     shell, reader, blocks, UI primitives (incl. Confidence, RelativeTime)
+  pages/          conversations, projects, review, design, reflections,
+                  memory, search, activity, graph
 ```
 
 **Performance.** The 64 MB `conversations.json` is parsed in a web worker, so the

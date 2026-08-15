@@ -6,7 +6,7 @@
 import { useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { NavLink } from 'react-router-dom'
-import { fmtAge, fmtDate, fmtNum, previewOf, titleOf } from '../lib/format.js'
+import { fmtAge, fmtDateLong, fmtNum, previewOf, titleOf } from '../lib/format.js'
 
 const ROW_HEIGHT = 92
 
@@ -48,7 +48,7 @@ function Row({ conversation, to }) {
               <h3 className="min-w-0 flex-1 truncate text-[13.5px] font-medium">{titleOf(conversation)}</h3>
               <span
                 className="shrink-0 font-mono text-[10.5px] text-[var(--text-dim)] tabular-nums"
-                title={fmtDate(conversation.updatedAtMs)}
+                title={`Last active: ${fmtDateLong(conversation.updatedAtMs)}`}
               >
                 {fmtAge(conversation.updatedAtMs)}
               </span>

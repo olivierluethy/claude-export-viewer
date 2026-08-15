@@ -20,11 +20,10 @@ import {
   breakdownByProject,
   breakdownByTool,
   buildActivitySeries,
-  buildTimeline,
   isoDate,
 } from '../lib/stats.js'
-import { fmtDate, fmtNum, titleOf } from '../lib/format.js'
-import { Link } from 'react-router-dom'
+import { fmtDate, fmtNum } from '../lib/format.js'
+import ActivityTimeline from '../components/ActivityTimeline.jsx'
 
 const GRANULARITIES = [
   ['day', 'day'],
@@ -132,7 +131,6 @@ export default function ActivityPage() {
   )
   const tools = useMemo(() => breakdownByTool(model.conversations), [model.conversations])
   const languages = useMemo(() => breakdownByLanguage(model.conversations), [model.conversations])
-  const timeline = useMemo(() => buildTimeline(model.conversations), [model.conversations])
 
   const counts = model.summary.counts
   const range = model.summary.dateRange
@@ -334,34 +332,8 @@ export default function ActivityPage() {
           </Section>
         </div>
 
-        <Section title="Timeline" note="every chat, newest first">
-          <div className="space-y-6">
-            {timeline.map((group) => (
-              <div key={group.key} className="grid grid-cols-[var(--gutter)_1fr] gap-x-3.5 [--gutter:4.25rem]">
-                <div className="relative">
-                  <span className="absolute top-0 right-0 bottom-0 w-px bg-[var(--rail)]" aria-hidden />
-                  <span className="block pr-3 text-right font-mono text-[11px] text-[var(--text-dim)]">
-                    {group.label}
-                  </span>
-                </div>
-                <ul className="space-y-0.5 pb-2">
-                  {group.conversations.map((c) => (
-                    <li key={c.uuid}>
-                      <Link
-                        to={`/chats/${c.uuid}`}
-                        className="flex items-baseline gap-2 rounded px-1.5 py-1 transition hover:bg-[var(--surface-high)]"
-                      >
-                        <span className="min-w-0 flex-1 truncate text-[13px]">{titleOf(c)}</span>
-                        <span className="shrink-0 font-mono text-[10px] text-[var(--text-dim)] tabular-nums">
-                          {fmtNum(c.facets.messageCount)} msg
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+        <Section title="Timeline" note="jump to any month · newest first">
+          <ActivityTimeline conversations={model.conversations} />
         </Section>
       </div>
     </div>
