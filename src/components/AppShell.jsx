@@ -15,6 +15,7 @@ const NAV = [
   { to: '/search', label: 'Search', count: null },
   { to: '/chats', label: 'Conversations', count: (m) => m.conversations.length },
   { to: '/projects', label: 'Projects', count: (m) => m.projects.length },
+  { to: '/review', label: 'Review links', count: (m) => m.recommendations.stats.related },
   { to: '/design', label: 'Design chats', count: (m) => m.designChats.length },
   { to: '/reflections', label: 'Reflections', count: (m) => m.reflections?.periods.length ?? 0 },
   { to: '/memories', label: 'Memory', count: (m) => m.memories?.files.length ?? 0 },

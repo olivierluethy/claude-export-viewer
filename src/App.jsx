@@ -14,6 +14,7 @@ import MemoriesPage from './pages/MemoriesPage.jsx'
 import SearchPage from './pages/SearchPage.jsx'
 import ActivityPage from './pages/ActivityPage.jsx'
 import GraphPage from './pages/GraphPage.jsx'
+import ReviewPage from './pages/ReviewPage.jsx'
 import { useDateFormat } from './lib/prefs.js'
 
 /** Restore the saved theme before first paint of the shell. */
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="graph" element={<GraphPage />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:uuid" element={<ProjectRoute />} />
+            <Route path="review" element={<ReviewPage />} />
             <Route path="design" element={<DesignChatsPage />} />
             <Route path="design/:uuid" element={<DesignChatRoute />} />
             <Route path="reflections" element={<ReflectionsPage />} />
