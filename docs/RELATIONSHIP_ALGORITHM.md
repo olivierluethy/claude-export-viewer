@@ -4,6 +4,11 @@ Developer reference for the recommendation engine in
 `src/lib/projectRecommend.js`. It documents the *intended* behaviour and the
 reasoning behind the design decisions, not merely what the code happens to do.
 
+> For the narrative "why" — the export limitation that forces this whole design,
+> and the story behind each decision — read
+> [`RELATIONSHIP_INTELLIGENCE.md`](RELATIONSHIP_INTELLIGENCE.md) first. This file
+> is the precise reference that sits under it.
+
 > **Honesty constraint.** There is no embedding model available offline. Every
 > signal here is lexical (TF-IDF over the same vectors `lib/related.js` builds)
 > or plain metadata overlap. Nothing in this system is semantic embedding, and

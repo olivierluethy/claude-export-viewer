@@ -94,7 +94,10 @@ terminology, shared tools/languages and timing. It is deliberately allowed to
 say *ambiguous* or *no meaningful link* rather than forcing a guess; every
 recommendation shows its evidence and its competing candidates, and nothing is
 linked until you confirm it (high-confidence matches can be confirmed in bulk).
-The algorithm is documented in [`docs/RELATIONSHIP_ALGORITHM.md`](docs/RELATIONSHIP_ALGORITHM.md).
+Why it must infer these links rather than read them — and how — is documented in
+[`docs/RELATIONSHIP_INTELLIGENCE.md`](docs/RELATIONSHIP_INTELLIGENCE.md) (the
+"why"), with the precise signals and thresholds in
+[`docs/RELATIONSHIP_ALGORITHM.md`](docs/RELATIONSHIP_ALGORITHM.md).
 
 **Analyse** — activity over time as vertical bars at day/week/month granularity,
 breakdowns by project, tool and language, and a relationship map of projects and
