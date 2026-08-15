@@ -5,19 +5,11 @@
  * local_resource, image).
  */
 
-import Markdown from '../ui/Markdown.jsx'
 import CodeBlock from '../ui/CodeBlock.jsx'
 import Collapsible from '../ui/Collapsible.jsx'
+import Prose from './Prose.jsx'
 import { fmtBytes } from '../../lib/format.js'
 import { usePrinting, usePrintOptions } from '../../lib/printing.js'
-import { useMarkdownView } from './markdownView.js'
-
-/** Prose block: formatted markdown, or its raw source when 'source' is active. */
-function Prose({ text, className }) {
-  const view = useMarkdownView()
-  if (view === 'source') return <CodeBlock code={text} language="markdown" />
-  return <div className={className}><Markdown>{text}</Markdown></div>
-}
 
 /* ---------------------------------------------------------------- thinking */
 
@@ -243,7 +235,7 @@ function ToolResultBlock({ block }) {
 
 /* --------------------------------------------------------------- dispatch */
 
-export default function BlockRenderer({ block }) {
+export default function BlockRenderer({ block, anchorBase }) {
   const printing = usePrinting()
   const printOptions = usePrintOptions()
 
@@ -253,7 +245,7 @@ export default function BlockRenderer({ block }) {
 
   switch (block.kind) {
     case 'text':
-      return block.text?.trim() ? <Prose text={block.text} /> : null
+      return block.text?.trim() ? <Prose text={block.text} anchorBase={anchorBase} /> : null
     case 'thinking':
       return <ThinkingBlock block={block} />
     case 'tool_use':
